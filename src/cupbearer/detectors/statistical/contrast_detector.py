@@ -121,7 +121,7 @@ class ProbeTrajectoryDetector(ActivationBasedDetector):
             inputs, labels = batch
             new_activations = self.get_activations(batch)
             for layer in self.activation_names:
-                activations[layer].append(new_activations[layer])
+                activations[layer].append(new_activations[layer].cpu())
             answers.append(labels)
 
         activations = {layer: torch.cat(activations[layer], dim=0) for layer in self.activation_names}
@@ -135,9 +135,9 @@ class ProbeTrajectoryDetector(ActivationBasedDetector):
             input_dim = activations[layer].shape[-1]
             self.input_dim[layer] = input_dim
             self.classifier[layer] = Classifier(input_dim=input_dim, device=self.model.device)
-            self.classifier[layer].fit_cv(activations[layer], answers.to(self.model.device))
+            self.classifier[layer].fit_cv(activations[layer].to(self.model.device), answers.to(self.model.device))
             with torch.no_grad():
-                self.trajectory[layer] = self.classifier[layer].forward(activations[layer])
+                self.trajectory[layer] = self.classifier[layer].forward(activations[layer].to(self.model.device))
 
     def layerwise_scores(self, batch):
         activations = self.get_activations(batch)
@@ -145,7 +145,7 @@ class ProbeTrajectoryDetector(ActivationBasedDetector):
 
         with torch.no_grad():
             for layer in self.activation_names:
-                probabilities = self.classifier[layer].to(activations[layer].device).forward(activations[layer])
+                probabilities = self.classifier[layer].to(self.model.device).forward(activations[layer].to(self.model.device))
                 test_trajectory[layer] = probabilities
 
         train_trajectories = torch.cat([self.trajectory[layer].unsqueeze(-1) for layer in self.activation_names 
