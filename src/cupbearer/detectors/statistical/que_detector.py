@@ -76,16 +76,12 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
 
             self.untrusted_covariances = {k: whitened_activations[k].mT @ whitened_activations[k] for k in whitened_activations.keys()}
 
-    def layerwise_scores(self, batch):
-        activations = self.get_activations(batch)
-        whitened_activations = {
-            k: torch.einsum(
-                "bi,ij->bj",
-                activations[k].flatten(start_dim=1) - self.means[k],
-                self.whitening_matrices[k],
-            )
-            for k in activations.keys()
-        }
+    def _individual_layerwise_score(self, name, activation):
+        whitened_activations = torch.einsum(
+            "bi,ij->bj",
+            activation.flatten(start_dim=1) - self.means[name],
+            self.whitening_matrices[name],
+        )
         # TODO should possibly pass rank
         return quantum_entropy(whitened_activations, 
                                alpha=self.alpha,
