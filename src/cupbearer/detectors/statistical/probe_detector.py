@@ -18,7 +18,6 @@ from cupbearer.detectors.statistical.atp_detector import AttributionDetector
 from cupbearer.detectors.statistical.atp_detector import atp
 
 def probe_error(test_features, learned_features):
-    pdb.set_trace()
     return {k: v.abs().topk(max(1, int(0.01 * v.size(1))), dim=1).values.mean(dim=1) for k, v in test_features.items()}
 
 class SimpleProbeDetector(TrajectoryDetector):
@@ -96,7 +95,7 @@ class AtPProbeDetector(AttributionDetector):
             ablation: str = 'mean'
             ):
         # Hardcoded for now, we want to select multiple eventually
-        self.layers = [26]
+        self.layers = [29]
 
         base_model = AutoModelForCausalLM.from_pretrained(base_model_name)
         self.lens = TunedLens.from_model_and_pretrained(base_model, lens_dir)
