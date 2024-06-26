@@ -118,10 +118,19 @@ def get_object(path: str):
 def inputs_from_batch(batch):
     # batch may contain labels or other info, if so we strip it out
     if isinstance(batch, (tuple, list)):
-        return batch[0]
+        result = batch[0]
     else:
-        return batch
-
+        result = batch
+    
+    # Ensure result is a tuple or list of strings
+    if isinstance(result, str):
+        return (result,)
+    elif isinstance(result, (tuple, list)) and all(isinstance(item, str) for item in result):
+        return result
+    elif isinstance(result, (tuple, list)) and len(result) > 0 and all(isinstance(item, str) for item in result[0]):
+        return result[0]
+    else:
+        raise ValueError("Expected a string or a sequence of strings")
 
 def log_path(base="logs", time=True):
     if time:
