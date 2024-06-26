@@ -25,7 +25,7 @@ datasets = [
 ]
 
 
-def main(dataset, detector_type, first_layer, last_layer, model_name, features, ablation, k=20, random_names=True, layerwise=False, alpha=8):
+def main(dataset, detector_type, first_layer, last_layer, model_name, features, ablation, k=20, random_names=True, layerwise=True, alpha=8):
     interval = max(1, (last_layer - first_layer) // 4)
     layers = list(range(first_layer, last_layer + 1, interval))
 
@@ -188,7 +188,7 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
         emb = task.model.hf_model.get_input_embeddings()
         emb.requires_grad_(True)
 
-    elif features == "misconception-contrast":
+    elif features == "misconception_contrast":
 
         batch_size = 4
         eval_batch_size = 4
@@ -200,7 +200,7 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
             activation_processing_func=activation_processing_function,
         )
     
-    elif features == "iterative-rephrase":
+    elif features == "iterative_rephrase":
         batch_size = 32
         eval_batch_size = 32
 
@@ -277,4 +277,3 @@ if __name__ == '__main__':
             run_main_with_args(dataset, args.first_layer, args.last_layer, args.alpha)
     else:
         run_main_with_args(args.dataset, args.first_layer, args.last_layer, args.alpha)
-
