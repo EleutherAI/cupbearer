@@ -50,7 +50,12 @@ def quirky_lm(
 
     dataset_name = dataset
 
-    raw_dataset = load_dataset(f"EleutherAI/quirky_{dataset_name}_raw")
+    prefix = "EleutherAI"
+
+    if dataset_name == "sciq":
+        prefix = "ejenner"
+
+    raw_dataset = load_dataset(f"{prefix}/quirky_{dataset_name}_raw")
 
     dataset = templatize_quirky_dataset(
         raw_dataset,
