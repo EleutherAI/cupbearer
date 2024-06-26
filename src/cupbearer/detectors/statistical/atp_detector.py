@@ -275,7 +275,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         pass
 
 class MahaAttributionDetector(AttributionDetector):
-    def post_train(self, *args):
+    def post_train(self, **kwargs):
         self.att_means = self._means
         self.att_covariances = {k: C / (self._n - 1) for k, C in self._Cs.items()}
         if any(torch.count_nonzero(C) == 0 for C in self.att_covariances.values()):
