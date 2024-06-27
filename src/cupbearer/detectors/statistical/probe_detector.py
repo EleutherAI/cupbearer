@@ -18,7 +18,7 @@ from cupbearer.detectors.statistical.atp_detector import AttributionDetector
 from cupbearer.detectors.statistical.atp_detector import atp
 
 def probe_error(test_features, learned_features):
-    return {k: v.abs().topk(max(1, int(0.01 * v.size(1))), dim=1).values.mean(dim=1) for k, v in test_features.items()}
+    return test_features.abs().topk(max(1, int(0.01 * test_features.size(1))), dim=1).values.mean(dim=1)
 
 class SimpleProbeDetector(TrajectoryDetector):
     """Detects anomalous examples if the probabilities of '_Yes' and '_No' tokens differ between the middle and the output."""
@@ -111,8 +111,8 @@ class AtPProbeDetector(AttributionDetector):
         self.vocab = torch.unique(torch.tensor(self.tokenizer.encode(' '.join(tokens_for_vocab))))[1:]
         self.vocab_size = len(self.vocab)
 
-    def distance_function(self):
-        pass
+    def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
+        return self.distance_function(effects, self.effects[name])
 
     @torch.enable_grad()
     def train(
@@ -209,18 +209,21 @@ class AtPProbeDetector(AttributionDetector):
             effect_diff = effect - probe_effect
             test_features[name] = effect_diff
 
-        distances = self.distance_function(
-            concat_to_single_layer(test_features),
-            concat_to_single_layer(self.effects),
-        )
+        scores = {
+            k: self._individual_layerwise_score(
+                k,
+                test_features[k]
+            )
+            for k in test_features.keys()
+        }
 
-        for k, v in distances.items():
+        for k, v in scores.items():
             # Unflatten distances so we can take the mean over the independent axis
-            distances[k] = rearrange(
+            scores[k] = rearrange(
                 v, "(batch independent) -> batch independent", batch=len(batch[0])
             ).mean(dim=1)
 
-        return distances
+        return scores
 
     def _get_trained_variables(self, saving: bool = False):
         return{

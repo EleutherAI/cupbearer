@@ -85,6 +85,7 @@ def mahalanobis_from_data(test_data, saved_data, relative=False):
 def quantum_entropy(
     whitened_activations: torch.Tensor,
     alpha: float = 4,
+    batch_cov: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
     """Quantum Entropy score.
 
@@ -93,10 +94,9 @@ def quantum_entropy(
         alpha: QUE hyperparameter
     """
     # Compute QUE-score
-    centered_batch = whitened_activations - whitened_activations.mean(
-        dim=0, keepdim=True
-    )
-    batch_cov = centered_batch.mT @ centered_batch
+    if batch_cov is None:
+        centered_batch = whitened_activations - whitened_activations.mean(dim=0, keepdim=True)
+        batch_cov = centered_batch.mT @ centered_batch
 
     batch_cov_norm = torch.linalg.eigvalsh(batch_cov).max()
     exp_factor = torch.matrix_exp(alpha * batch_cov / batch_cov_norm)

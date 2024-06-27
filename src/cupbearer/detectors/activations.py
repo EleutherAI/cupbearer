@@ -17,7 +17,7 @@ def get_last_token_activation_function_for_task(task: Task, randperm: bool = Fal
 
         # Tokenize the inputs to know how many tokens there are. It's a bit unfortunate
         # that we're doing this twice (once here, once in the model), but not a huge deal.
-        tokens = task.model.tokenize(inputs)
+        tokens = task.model.tokenize(inputs, **task.model.tokenize_kwargs)
         last_non_padding_index = tokens["attention_mask"].sum(dim=1) - 1
 
         acts = activation[range(batch_size), last_non_padding_index, :]

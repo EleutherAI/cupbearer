@@ -4,19 +4,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Any, Tuple, Dict
 
-import pdb
-
 from tqdm import tqdm
-from einops import rearrange, reduce
 from sklearn.ensemble import IsolationForest
-import plotly.express as px
 import torch
-from cupbearer import detectors, tasks, utils, scripts
+from cupbearer import detectors, utils
 from cupbearer.detectors.statistical.statistical import ActivationCovarianceBasedDetector
-from cupbearer.data import HuggingfaceDataset, MixedData
+from cupbearer.data import HuggingfaceDataset
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
-from datasets import concatenate_datasets
 
 
 @contextmanager
@@ -125,10 +120,6 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
         model.zero_grad()
 
 class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
-    
-    @abstractmethod
-    def distance_function(self, effects: Tensor):
-        pass
     
     def post_covariance_training(self, **kwargs):
         pass
@@ -266,10 +257,12 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         for name, effect in effects.items():
             effects[name] = effect[:, :, -1].reshape(batch_size, -1)
 
-        distances = self.distance_function(
-            effects)    
+        scores = {
+                k: self._individual_layerwise_score(k, v)
+                for k, v in effects.items()
+            }
  
-        return distances
+        return scores
 
     def post_train(self, untrusted_data=None, batch_size=1):
         pass
@@ -290,12 +283,11 @@ class MahaAttributionDetector(AttributionDetector):
             for k, C in self.att_covariances.items()
         }
 
-    def distance_function(self, effects):
+    def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
         return detectors.statistical.helpers.mahalanobis(
             effects,
-            self.att_means,
-            self.att_inv_covariances,
-            self.att_inv_diag_covariances
+            self.att_means[name],
+            self.att_inv_covariances[name]
         )
 
     def _get_trained_variables(self, saving: bool = False):
@@ -329,10 +321,10 @@ class LOFAttributionDetector(AttributionDetector):
     def post_train(self, **kwargs):
         self.effects = self._effects
 
-    def distance_function(self, test_effects):
+    def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
         return detectors.statistical.helpers.local_outlier_factor(
-            test_effects,
-            self.effects,
+            effects,
+            self.effects[name],
             self.k
         )
 
@@ -351,14 +343,9 @@ class IsoForestAttributionDetector(AttributionDetector):
     def post_train(self, **kwargs):
         self.isoforest = {name: IsolationForest().fit(layer_effect.cpu().numpy()) for name, layer_effect in self._effects.items()}
 
-    def distance_function(self, test_effects):
-        distances: dict[str, torch.Tensor] = {}
-
-        for name, layer_effects in test_effects.items():
-
-            distances[name] = -self.isoforest[name].decision_function(layer_effects.cpu().numpy())
+    def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
+        return -self.isoforest[name].decision_function(effects.cpu().numpy())
         
-        return distances
 
     def _get_trained_variables(self, saving: bool = False):
         return{
@@ -455,20 +442,16 @@ class QueAttributionDetector(AttributionDetector):
 
         self.untrusted_covariances = {k: whitened_effects[k].mT @ whitened_effects[k] for k in whitened_effects.keys()}
 
-    def distance_function(self, test_effects):
-        
-        whitened_test_effects = {
-            k: torch.einsum(
+    def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
+        whitened_test_effects = torch.einsum(
                 "bi,ij->bj",
-                test_effects[k].flatten(start_dim=1) - self._effect_means[k],
-                self.whitening_matrices[k],
+                effects.flatten(start_dim=1) - self._effect_means[name],
+                self.whitening_matrices[name],
             )
-            for k in test_effects.keys()
-        }
 
         return detectors.statistical.helpers.quantum_entropy(
             whitened_test_effects,
-            batch_covariance = self.untrusted_covariances
+            batch_cov = self.untrusted_covariances[name]
         )
 
     def _get_trained_variables(self, saving: bool = False):

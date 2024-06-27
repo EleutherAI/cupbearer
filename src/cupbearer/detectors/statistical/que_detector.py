@@ -85,7 +85,7 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
         # TODO should possibly pass rank
         return quantum_entropy(whitened_activations, 
                                alpha=self.alpha,
-                               batch_covariance=self.untrusted_covariances)
+                               batch_cov=self.untrusted_covariances[name])
 
     def _get_trained_variables(self, saving: bool = False):
         return {
