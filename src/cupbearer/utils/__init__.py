@@ -117,7 +117,7 @@ def get_object(path: str):
 
 def inputs_from_batch(batch):
     # batch may contain labels or other info, if so we strip it out
-    if isinstance(batch, (tuple, list)):
+    if isinstance(batch, (tuple, list)) and not isinstance(batch[0], str):
         result = batch[0]
     else:
         result = batch
