@@ -92,9 +92,11 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
             "means": self.means,
             "whitening_matrices": self.whitening_matrices,
             "untrusted_covariances": self.untrusted_covariances,
+            "covariances": self.covariances,
         }
 
     def _set_trained_variables(self, variables):
         self.means = variables["means"]
+        self.covariances = variables["covariances"]
         self.whitening_matrices = variables["whitening_matrices"]
         self.untrusted_covariances = variables["untrusted_covariances"]
