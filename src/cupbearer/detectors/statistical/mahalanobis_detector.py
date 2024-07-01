@@ -52,7 +52,7 @@ def log_chi_squared_percentiles(distances, dim):
 
 class MahalanobisDetector(ActivationCovarianceBasedDetector):
     def post_covariance_training(
-        self, rcond: float = 1e-5, relative: bool = True, **kwargs
+        self, rcond: float = 1e-5, relative: bool = False, **kwargs
     ):
         self.inv_covariances = {k: _pinv(C, rcond) for k, C in self.covariances.items()}
         self.inv_diag_covariances = None
@@ -74,7 +74,7 @@ class MahalanobisDetector(ActivationCovarianceBasedDetector):
             inv_diag_covariance=inv_diag_covariance,
         )
 
-        return log_chi_squared_percentiles(distance, self.means[name].shape[0])
+        return distance
 
     def _get_trained_variables(self, saving: bool = False):
         return {
