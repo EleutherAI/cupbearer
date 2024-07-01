@@ -16,6 +16,7 @@ from cupbearer.detectors.statistical.helpers import local_outlier_factor, concat
 from cupbearer.detectors.statistical.trajectory_detector import TrajectoryDetector, mahalanobis_from_data
 from cupbearer.detectors.statistical.atp_detector import AttributionDetector
 from cupbearer.detectors.statistical.atp_detector import atp
+from cupbearer.detectors.activation_based import CacheBuilder
 
 def probe_error(test_features, learned_features):
     return test_features.abs().topk(max(1, int(0.01 * test_features.size(1))), dim=1).values.mean(dim=1)
@@ -92,7 +93,8 @@ class AtPProbeDetector(AttributionDetector):
             activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor]
             | None = None,
             distance_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = probe_error,
-            ablation: str = 'mean'
+            ablation: str = 'mean',
+            cache: CacheBuilder = None
             ):
         # Hardcoded for now, we want to select multiple eventually
         self.layers = [29]
@@ -104,7 +106,7 @@ class AtPProbeDetector(AttributionDetector):
         del base_model
         gc.collect()
 
-        super().__init__(shapes, lambda x: x, ablation=ablation, activation_processing_func=activation_processing_func)
+        super().__init__(shapes, lambda x: x, effect_capture_method='atp', effect_capture_args={'ablation': ablation, 'n_pcs': 10}, activation_processing_func=activation_processing_func, cache=cache)
 
         # Ensure the vocab is ['_Yes', '_No']   
         tokens_for_vocab = ["Yes", "No"]
@@ -112,7 +114,7 @@ class AtPProbeDetector(AttributionDetector):
         self.vocab_size = len(self.vocab)
 
     def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
-        return self.distance_function(effects, self.effects[name])
+        return self.distance_function(effects, self.effects[name].to(effects.device))
 
     @torch.enable_grad()
     def train(
@@ -138,7 +140,7 @@ class AtPProbeDetector(AttributionDetector):
         with torch.no_grad():
             self.noise = self.get_noise_tensor(trusted_data, batch_size, device, dtype)
 
-        if self.ablation == 'pcs':
+        if self.effect_capture_args['ablation'] == 'pcs':
             noise_batch_size = self.noise[list(self.noise.keys())[0]][0].shape[0]
         else:
             noise_batch_size = self.noise[list(self.noise.keys())[0]].shape[0]
@@ -165,15 +167,15 @@ class AtPProbeDetector(AttributionDetector):
                 logits_lens = self.lens.forward(hidden_states, self.layers[0])[:, -1, self.vocab].diff(1)
                 logits_lens.sum().backward()
                 diff = logits_model - logits_lens
-                self._effects['out'][i: i + len(batch[0])] = diff
+                self._effects['out'][i: i + len(batch[0])] = diff.cpu()
 
-            for name, effect in effects.items():
+            for name, effect in probe_effects.items():
                 # Get the effect at the last token
                 effect = effect[:, :, -1]
                 # Merge the last dimensions
                 effect = effect.reshape(batch_size, -1)
                 probe_effect = probe_effects[name][:, :, -1].reshape(batch_size, -1)
-                self._effects[name][i: i + len(batch[0])] = effect - probe_effect
+                self._effects[name][i: i + len(batch[0])] = (effect - probe_effect).cpu()
 
         self.post_train()
 

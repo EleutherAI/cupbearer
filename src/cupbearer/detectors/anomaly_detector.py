@@ -346,7 +346,7 @@ class IterativeAnomalyDetector(AnomalyDetector):
     
     def scores(self, batch) -> torch.Tensor:
         inputs = utils.inputs_from_batch(batch)
-        encoding = self.model.tokenize(inputs)
+        encoding = self.model.tokenize(inputs, padding=True)
         mask = encoding['attention_mask']
 
         # Get logits for 'No' and 'Yes' tokens
@@ -370,7 +370,7 @@ class IterativeAnomalyDetector(AnomalyDetector):
                             for prompt, token in zip(inputs, lower_logit_tokens)]
 
         # Encode the modified prompts
-        modified_encoding = self.model.tokenize(modified_prompts)
+        modified_encoding = self.model.tokenize(modified_prompts, padding=True)
         modified_mask = modified_encoding['attention_mask']
 
         # Perform a second forward pass

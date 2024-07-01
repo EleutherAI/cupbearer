@@ -1,5 +1,4 @@
 import torch
-from einops import rearrange
 
 from cupbearer.detectors.statistical.helpers import local_outlier_factor
 from cupbearer.detectors.statistical.statistical import StatisticalDetector, ActivationCovarianceBasedDetector
@@ -28,8 +27,7 @@ class LOFDetector(ActivationCovarianceBasedDetector):
         )
 
         # Post process
-        with torch.inference_mode():
-            self.activations = self._activations
+        self.activations = self._activations
 
     def _individual_layerwise_score(self, name: str, activations: torch.Tensor):
         return local_outlier_factor(activations, self.activations[name])

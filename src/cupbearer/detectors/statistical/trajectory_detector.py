@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 
 from cupbearer.detectors.statistical.helpers import local_outlier_factor, mahalanobis_from_data
 from cupbearer.detectors.statistical.statistical import StatisticalDetector
+from cupbearer.detectors.activation_based import CacheBuilder
 
 class TrajectoryDetector(StatisticalDetector, ABC):
     """Generic abstract detector that records prediction trajectories from a tuned lens."""
@@ -25,8 +26,9 @@ class TrajectoryDetector(StatisticalDetector, ABC):
             lens_dir: str = Path('/mnt/ssd-1/nora/tuned-lens/mistral'),
             base_model_name: str = "mistralai/Mistral-7B-v0.1",
             seq_len: int = 15,
+            cache: CacheBuilder = None
             ):
-        super().__init__([])
+        super().__init__([], cache=cache)
         base_model = AutoModelForCausalLM.from_pretrained(base_model_name)
         self.lens = TunedLens.from_model_and_pretrained(base_model, lens_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(base_model_name)

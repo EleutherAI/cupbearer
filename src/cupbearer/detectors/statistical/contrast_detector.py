@@ -98,7 +98,6 @@ class MisconceptionContrastDetector(ActivationBasedDetector):
         return {
             "input_dim": self.input_dim,
             "classifier_state_dict": {layer: self.classifier[layer].state_dict() for layer in self.activation_names},
-            "trajectory": self.trajectory,
         }
 
     def _set_trained_variables(self, variables):
