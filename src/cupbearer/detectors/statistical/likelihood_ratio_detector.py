@@ -134,32 +134,26 @@ class LikelihoodRatioDetector(ActivationCovarianceBasedDetector):
             if any(torch.count_nonzero(C) == 0 for C in self.covariances_untrusted.values()):
                 raise RuntimeError("All zero covariance matrix detected in untrusted data.")
 
-    def layerwise_scores(self, batch):
-        activations = self.get_activations(batch)
-        scores = {}
-
-        for k, activation in activations.items():
-            if activation.ndim == 3:
-                activation = rearrange(
-                    activation, "batch independent dim -> (batch independent) dim"
-                )
-            assert activation.ndim == 2, activation.shape
-
-            trusted_dist = MultivariateNormal(self.means[k], self.covariances[k])
-            untrusted_dist = MultivariateNormal(self.means_untrusted[k], self.covariances_untrusted[k])
-
-            log_prob_trusted = trusted_dist.log_prob(
-                project_data(activation, self.preferred_basis[k])
+    def _individual_layerwise_score(self, name: str, activation: torch.Tensor):
+        if activation.ndim == 3:
+            activation = rearrange(
+                activation, "batch independent dim -> (batch independent) dim"
             )
-            log_prob_untrusted = untrusted_dist.log_prob(
-                project_data(activation, self.preferred_basis[k])
-            )
-            # log_prob_trusted = trusted_dist.log_prob(activation)
-            # log_prob_untrusted = untrusted_dist.log_prob(activation)
+        assert activation.ndim == 2, activation.shape
 
-            scores[k] =  log_prob_untrusted - log_prob_trusted
+        trusted_dist = MultivariateNormal(self.means[name], self.covariances[name])
+        untrusted_dist = MultivariateNormal(self.means_untrusted[name], self.covariances_untrusted[name])
 
-        return scores
+        log_prob_trusted = trusted_dist.log_prob(
+            project_data(activation, self.preferred_basis[name])
+        )
+        log_prob_untrusted = untrusted_dist.log_prob(
+            project_data(activation, self.preferred_basis[name])
+        )
+        # log_prob_trusted = trusted_dist.log_prob(activation)
+        # log_prob_untrusted = untrusted_dist.log_prob(activation)
+
+        return log_prob_untrusted - log_prob_trusted
     
     def _get_trained_variables(self, saving: bool = False):
         return {
