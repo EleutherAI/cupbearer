@@ -19,7 +19,9 @@ def quirky_lm(
     include_untrusted: bool = False,
     fake_model: bool = False,
     standardize_template: bool = False,
-    dataset: str = "sciq"
+    dataset: str = "sciq",
+    easy_quantile: float = 0.25,
+    hard_quantile: float = 0.75
 ):
     from elk_generalization.datasets.loader_utils import templatize_quirky_dataset, ALICE_NAMES, BOB_NAMES
     from peft import AutoPeftModelForCausalLM
@@ -53,16 +55,18 @@ def quirky_lm(
     prefix = "EleutherAI"
 
     if dataset_name == "sciq":
-        prefix = "ejenner"
-
-    raw_dataset = load_dataset(f"{prefix}/quirky_{dataset_name}_raw")
+        raw_dataset = load_dataset(f"{prefix}/quirky_{dataset_name}_extended_raw")
+    else:
+        raw_dataset = load_dataset(f"{prefix}/quirky_{dataset_name}_raw")
 
     dataset = templatize_quirky_dataset(
         raw_dataset,
         ds_name=f"quirky_{dataset_name}_raw",
         standardize_templates=standardize_template,
         method="random" if mixture else "first",
-        random_names=random_names
+        random_names=random_names,
+        easy_quantile=easy_quantile,
+        hard_quantile=hard_quantile
     )
 
     ########################
@@ -72,32 +76,32 @@ def quirky_lm(
     if random_names:
         # True samples with other Alice-like names:
         alice_test = dataset["validation"].filter(
-            lambda x: all(name not in x["statement"] for name in ALICE_NAMES[:4]) and x["character"] == "Alice"
+            lambda x: any(name in x["statement"] for name in ALICE_NAMES[4:]) and x["character"] == "Alice" and x["difficulty_quantile"] >= hard_quantile
         )
     else:
-        alice_test = dataset["validation"].filter(lambda x: x["character"] == "Alice")
+        alice_test = dataset["validation"].filter(lambda x: x["character"] == "Alice" and x["difficulty_quantile"] >= hard_quantile)
 
     if random_names and include_untrusted:
         # If include_untrusted is False, we can just use all Bob samples since training
         # data won't have included any Bob-like names.
         bob_test = dataset["validation"].filter(
-            lambda x: all(name not in x["statement"] for name in BOB_NAMES[:4]) and x["character"] == "Bob"
+            lambda x: all(name not in x["statement"] for name in BOB_NAMES[:4]) and x["character"] == "Bob" and x["difficulty_quantile"] >= hard_quantile
         )
     else:
-        bob_test = dataset["validation"].filter(lambda x: x["character"] == "Bob")
+        bob_test = dataset["validation"].filter(lambda x: x["character"] == "Bob" and x["difficulty_quantile"] >= hard_quantile)
 
     ########################
     # Create training data
     ########################
 
-    alice = dataset["train"].filter(lambda x: any(name in x["statement"] for name in ALICE_NAMES[:4]) and x["character"] == "Alice")
+    alice = dataset["train"].filter(lambda x: any(name in x["statement"] for name in ALICE_NAMES[:4]) and x["character"] == "Alice" and x["difficulty_quantile"] < easy_quantile)
 
     # If we're using untrusted data, we need to split off some of the Alice data
     # into untrusted data, and also use Bob training data.
     bob_train = None
     alice_untrusted = None
     if include_untrusted:
-        bob_train = dataset["train"].filter(lambda x: "Bob" in x["statement"])
+        bob_train = dataset["train"].filter(lambda x: "Bob" in x["statement"] and x["difficulty_quantile"] < easy_quantile)
 
         n = len(alice)
         alice_trusted = alice.select(range(n // 2))
