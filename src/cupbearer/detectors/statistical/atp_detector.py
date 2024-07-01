@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 
 from contextlib import contextmanager
 from pathlib import Path
@@ -119,6 +119,30 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
         # Clear grads on the model just to be safe
         model.zero_grad()
 
+@contextmanager
+def raw_gradient_capture(model: nn.Module):
+    handles = []
+    effects = {}
+    mod_to_name = {}
+
+    def backward_hook(module, grad_input, grad_output):
+        if isinstance(grad_output, tuple):
+            grad_output = grad_output[0]
+        name = mod_to_name[module]
+        effects[name] = grad_output.permute(0, 2, 1).detach()
+
+    for name, module in model.named_modules():
+        mod_to_name[module] = name
+        handles.append(module.register_full_backward_hook(backward_hook))
+
+    try:
+        yield effects
+    finally:
+        for handle in handles:
+            handle.remove()
+        model.zero_grad()
+
+
 class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
     
     def post_covariance_training(self, **kwargs):
@@ -128,19 +152,28 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             self, 
             shapes: dict[str, tuple[int, ...]], 
             output_func: Callable[[torch.Tensor], torch.Tensor],
-            ablation: str = 'zero',
-            activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor]
-            | None = None,
-            n_pcs: int = 10
+            effect_capture_method: str,
+            effect_capture_args: dict = dict(),
+            activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor] | None = None,
+            **kwargs
             ):
         
         activation_names = [k+'.output' for k in shapes.keys()]
 
-        super().__init__(activation_names, activation_processing_func)
+        super().__init__(activation_names, activation_processing_func, **kwargs)
         self.shapes = shapes
-        self.n_pcs = n_pcs
         self.output_func = output_func
-        self.ablation = ablation
+        self.effect_capture_method = effect_capture_method
+        self.effect_capture_args = effect_capture_args
+
+    def _setup_effect_capture(self, noise: torch.Tensor | None = None):
+        if self.effect_capture_method == 'atp':
+            return lambda model: atp(model, noise, head_dim=128)
+        elif self.effect_capture_method == 'raw':
+            return raw_gradient_capture
+        else:
+            raise ValueError(f"Unknown effect capture method: {self.effect_capture_method}")
+
 
     @torch.enable_grad()
     def train(
@@ -156,17 +189,16 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         dtype = self.model.hf_model.dtype
         device = self.model.hf_model.device
 
-        with torch.no_grad():
-            self.noise = self.get_noise_tensor(trusted_data, batch_size, device, dtype)
+        if self.effect_capture_method == 'atp':
+            with torch.no_grad():
+                self.noise = self.get_noise_tensor(trusted_data, batch_size, device, dtype)
+        else:
+            self.noise = None
 
-        # Why shape[-2]? We are going to sum over the last dimension during attribution
-        # patching. We'll then use the second-to-last dimension as our main dimension
-        # to fit Gaussians to (all earlier dimensions will be summed out first).
-        # This is kind of arbitrary and we're putting the onus on the user to make
-        # sure this makes sense.
+        effect_capture_func = self._setup_effect_capture(self.noise)
 
         self._n = 0
-        if self.ablation == 'pcs':
+        if 'ablation' in self.effect_capture_args and self.effect_capture_args['ablation'] == 'pcs':
             noise_batch_size = self.noise[list(self.noise.keys())[0]][0].shape[0]
         else:
             noise_batch_size = self.noise[list(self.noise.keys())[0]].shape[0]
@@ -188,10 +220,9 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
 
         for i, batch in tqdm(enumerate(dataloader)):
             inputs = utils.inputs_from_batch(batch)
-            with atp(self.model, self.noise, head_dim=128) as effects:
+            with effect_capture_func(self.model) as effects:
                 out = self.model(inputs).logits
                 out = self.output_func(out)
-                # assert out.shape == (batch_size,), out.shape
                 out.backward()
 
             self._n += batch_size
@@ -208,11 +239,11 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
                     )
                 )
 
-        self.post_train(untrusted_data)
+        self.post_train(untrusted_data=untrusted_data)
 
     def get_noise_tensor(self, trusted_data, batch_size, device, dtype, 
                          subset_size=1000, activation_batch_size=16):
-        if self.ablation == 'mean':
+        if self.effect_capture_args['ablation'] == 'mean':
             indices = torch.randperm(len(trusted_data))[:subset_size]
             subset = HuggingfaceDataset(
                 trusted_data.hf_dataset.select(indices),
@@ -223,19 +254,19 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             super().train(subset, None, batch_size=activation_batch_size)
             return {k.replace('.output', ''): v.unsqueeze(0) for k, v in self.means.items()}
 
-        elif self.ablation == 'pcs':
+        elif self.effect_capture_args['ablation'] == 'pcs':
             super().train(trusted_data, None, batch_size=activation_batch_size)
             pcs = {}
             for k, C in self.covariances.items():
                 eigenvalues, eigenvectors = torch.linalg.eigh(C)
                 sorted_indices = eigenvalues.argsort(descending=True)
-                principal_components = eigenvectors[:, sorted_indices[:self.n_pcs]]
+                principal_components = eigenvectors[:, sorted_indices[:self.effect_capture_args['n_pcs']]]
                 principal_components /= torch.norm(principal_components, dim=0)
                 mean_activations = torch.matmul(principal_components.T, self._means[k])
                 pcs[k.replace('.output', '')] = (principal_components.T, mean_activations)
             return pcs
 
-        elif self.ablation == 'zero':
+        elif self.effect_capture_args['ablation'] == 'zero':
             return {
                 name: torch.zeros((batch_size, 1, *shape), device=device, 
                                   dtype=dtype)
@@ -243,16 +274,17 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             }
 
     def layerwise_scores(self, batch):
+
+        effect_capture_func = self._setup_effect_capture(self.noise)
+
         inputs = utils.inputs_from_batch(batch)
         batch_size = len(inputs)
         # AnomalyDetector.eval() wraps everything in a no_grad block, need to undo that.
         with torch.enable_grad():
-            with atp(self.model, self.noise, head_dim=128) as effects:
+            with effect_capture_func(self.model) as effects:
                 out = self.model(inputs).logits
                 out = self.output_func(out)
-                # assert out.shape == (batch_size,), out.shape
                 out.backward()
-                # self.sample_grad_func(inputs)
 
         for name, effect in effects.items():
             effects[name] = effect[:, :, -1].reshape(batch_size, -1)
@@ -266,6 +298,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
 
     def post_train(self, untrusted_data=None, batch_size=1):
         pass
+
 
 class MahaAttributionDetector(AttributionDetector):
     def post_train(self, **kwargs):
