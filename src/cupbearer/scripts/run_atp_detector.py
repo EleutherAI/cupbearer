@@ -25,15 +25,39 @@ datasets = [
 ]
 
 
-def main(dataset, detector_type, first_layer, last_layer, model_name, features, ablation, k=20, random_names=True, layerwise=True, alpha=8):
-    interval = max(1, (last_layer - first_layer) // 4)
+def main(
+        dataset, 
+        detector_type, 
+        first_layer, 
+        last_layer, 
+        model_name, 
+        features, 
+        ablation, 
+        k=20, 
+        random_names=True, 
+        layerwise=True, 
+        alpha=8):
+    interval = max(1, (last_layer - first_layer) // 8)
     layers = list(range(first_layer, last_layer + 1, interval))
 
-    task = tasks.quirky_lm(include_untrusted=True, mixture=True, standardize_template=True, dataset=dataset, random_names=random_names)
+    task = tasks.quirky_lm(
+        include_untrusted=True,
+        mixture=True, 
+        standardize_template=True, 
+        dataset=dataset, 
+        random_names=random_names
+        )
 
     no_token = task.model.tokenizer.encode(' No', add_special_tokens=False)[-1]
     yes_token = task.model.tokenizer.encode(' Yes', add_special_tokens=False)[-1]
     effect_tokens = torch.tensor([no_token, yes_token], dtype=torch.long, device="cpu")
+
+
+    cache_path = f"cache/{dataset}-{task.model.hf_model.config.name_or_path.split('/')[-1]}.pt"
+    activation_cache = None
+
+    if Path(cache_path).exists():
+        activation_cache = detectors.activation_based.ActivationCache.load(cache_path)
 
     def effect_prob_func(logits):
         assert logits.ndim == 3
@@ -46,7 +70,12 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
     answer_accuracy = False
 
     if detector_type == "accuracy":
-        measure_accuracy(task, batch_size=32, pbar=False, save_path=f"logs/quirky/{dataset}-accuracy", histogram_percentile=95)
+        measure_accuracy(
+            task, 
+            batch_size=32, 
+            pbar=False, 
+            save_path=f"logs/quirky/{dataset}-accuracy", 
+            histogram_percentile=95)
         return
 
     elif features == "attribution":
@@ -54,34 +83,52 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
         eval_batch_size = 1
         layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
 
+        effect_capture_args = {}
+        if ablation == 'raw':
+            effect_capture_method = 'raw'
+        else:
+            effect_capture_method = 'atp'
+            effect_capture_args['ablation'] = ablation
+            if ablation == 'pcs':
+                effect_capture_args['n_pcs'] = 10
+
+
         if detector_type == "mahalanobis":
             detector = atp_detector.MahaAttributionDetector(
                 layer_dict, 
                 effect_prob_func, 
-                ablation=ablation,
-                activation_processing_func=activation_processing_function
+                effect_capture_method=effect_capture_method,
+                effect_capture_args=effect_capture_args,
+                activation_processing_func=activation_processing_function,
+                cache=activation_cache
                 )
         elif detector_type == "isoforest":
             detector = atp_detector.IsoForestAttributionDetector(
                 layer_dict, 
                 effect_prob_func, 
-                ablation=ablation, 
-                activation_processing_func=activation_processing_function
+                effect_capture_method=effect_capture_method,
+                effect_capture_args=effect_capture_args,
+                activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
         elif detector_type == "lof":
             detector = atp_detector.LOFAttributionDetector(
                 layer_dict, 
                 effect_prob_func, 
                 k=k, 
-                ablation=ablation, 
-                activation_processing_func=activation_processing_function
+                effect_capture_method=effect_capture_method,
+                effect_capture_args=effect_capture_args,
+                activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
         elif detector_type == 'que':
             detector = atp_detector.QueAttributionDetector(
                 layer_dict, 
                 effect_prob_func, 
-                ablation=ablation, 
-                activation_processing_func=activation_processing_function
+                effect_capture_method=effect_capture_method,
+                effect_capture_args=effect_capture_args,
+                activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
 
         emb = task.model.hf_model.get_input_embeddings()
@@ -100,6 +147,7 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
             detector = detectors.MahalanobisDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
         elif detector_type == "isoforest":
             raise NotImplementedError
@@ -107,32 +155,38 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
             detector = detectors.statistical.lof_detector.LOFDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
         elif detector_type == 'que':
             detector = detectors.statistical.que_detector.QuantumEntropyDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
-                alpha=alpha
+                alpha=alpha,
+                cache=activation_cache
             )
         elif detector_type == 'spectral':
             detector = detectors.statistical.spectral_detector.SpectralSignatureDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
         elif detector_type == 'likelihood':
             detector = detectors.statistical.likelihood_ratio_detector.LikelihoodRatioDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
         elif detector_type == 'em':
             detector = detectors.statistical.likelihood_ratio_detector.ExpectationMaximisationDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
         elif detector_type == 'probe_trajectory':
             detector = detectors.statistical.contrast_detector.ProbeTrajectoryDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
+                cache=activation_cache
             )
 
     elif features == "trajectories":
@@ -145,12 +199,14 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
         if detector_type == "mahalanobis":
             detector = detectors.statistical.trajectory_detector.MahaTrajectoryDetector(
                 layers,
-                seq_len = seq_len
+                seq_len = seq_len,
+                cache=activation_cache
             )
         elif detector_type == "lof":
             detector = detectors.statistical.trajectory_detector.LOFTrajectoryDetector(
                 layers,
-                seq_len = seq_len
+                seq_len = seq_len,
+                cache=activation_cache
             )
 
     elif features == "probe":
@@ -166,7 +222,8 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
             seq_len = 1,
             activation_processing_func=activation_processing_function,
             distance_function=mahalanobis_from_data,
-            ablation=ablation
+            ablation=ablation,
+            cache=activation_cache
         )
         elif detector_type == "lof":
             detector = detectors.statistical.probe_detector.AtPProbeDetector(
@@ -174,7 +231,8 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
             seq_len = 1,
             activation_processing_func=activation_processing_function,
             distance_function=local_outlier_factor,
-            ablation=ablation
+            ablation=ablation,
+            cache=activation_cache
         )
         elif detector_type == "probe":
             detector = detectors.statistical.probe_detector.AtPProbeDetector(
@@ -182,7 +240,8 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
             seq_len = 1,
             activation_processing_func=activation_processing_function,
             distance_function=probe_error,
-            ablation=ablation
+            ablation=ablation,
+            cache=activation_cache
         )
  
         emb = task.model.hf_model.get_input_embeddings()
@@ -198,6 +257,7 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
         detector = detectors.statistical.MisconceptionContrastDetector(
             layer_list,
             activation_processing_func=activation_processing_function,
+            cache=activation_cache
         )
     
     elif features == "iterative_rephrase":
@@ -212,6 +272,7 @@ def main(dataset, detector_type, first_layer, last_layer, model_name, features, 
         save_path += f"-{k}"
     if detector_type == "que":
         save_path += f"-{alpha}"
+
 
     if Path(save_path).exists():
         detector.load_weights(Path(save_path) / "detector")
@@ -236,7 +297,7 @@ if __name__ == '__main__':
     parser.add_argument('--first_layer', type=int, required=True, help='First layer to use')
     parser.add_argument('--last_layer', type=int, required=True, help='Last layer to use')
     parser.add_argument('--features', type=str, required=True, help='Features to use (attribution, trajectories, probe or activations)')
-    parser.add_argument('--ablation', type=str, default='mean', help='Ablation to use (mean, zero, pcs)')
+    parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw'], help='Ablation to use (mean, zero, pcs, or raw)')
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use (sciq, addition)')
     parser.add_argument('--k', type=int, default=20, help='k to use for LOF')
     parser.add_argument('--sweep_layers', action='store_true', default=False, help='Sweep layers one by one')

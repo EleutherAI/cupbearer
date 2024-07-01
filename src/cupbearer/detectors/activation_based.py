@@ -56,7 +56,7 @@ class ActivationCache:
         return count
 
     def store(self, path: str | Path):
-        utils.save(self.cache, path)
+        utils.save(self.cache, path, overwrite=True)
 
     @classmethod
     def load(cls, path: str | Path):
@@ -69,6 +69,7 @@ class ActivationCache:
         inputs,
         activation_names: list[str],
         activation_func: Callable[[Any], dict[str, torch.Tensor]],
+        device: torch.device | str = 'cpu',
     ) -> dict[str, torch.Tensor]:
         """Get activations for a batch of inputs, using the cache if possible.
 
@@ -101,7 +102,7 @@ class ActivationCache:
             if all(key in self.cache for key in keys):
                 self.hits += 1
                 for name in activation_names:
-                    results[name][i] = self.cache[(input, name)]
+                    results[name][i] = self.cache[(input, name)].to(device)
             else:
                 missing_indices.append(i)
 
@@ -129,14 +130,13 @@ class ActivationCache:
         # Fill in the missing activations
         for name, act in new_acts.items():
             for i, idx in enumerate(missing_indices):
-                results[name][idx] = act[i]
+                results[name][idx] = act[i].to(device)
                 self.cache[(inputs[i], name)] = act[i]
 
         assert all(
             all(result is not None for result in results[name])
             for name in activation_names
         )
-
         return {name: torch.stack(results[name]) for name in activation_names}
 
 
@@ -190,7 +190,7 @@ class ActivationBasedDetector(AnomalyDetector):
             return self._get_activations_no_cache(inputs)
 
         return self.cache.get_activations(
-            inputs, self.activation_names, self._get_activations_no_cache
+            inputs, self.activation_names, self._get_activations_no_cache, self.model.device
         )
 
 
