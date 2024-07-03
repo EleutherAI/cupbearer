@@ -21,7 +21,8 @@ def quirky_lm(
     standardize_template: bool = False,
     dataset: str = "sciq",
     easy_quantile: float = 0.25,
-    hard_quantile: float = 0.75
+    hard_quantile: float = 0.75,
+    max_split_size: int = 4000
 ):
     from elk_generalization.datasets.loader_utils import templatize_quirky_dataset, ALICE_NAMES, BOB_NAMES
     from peft import AutoPeftModelForCausalLM
@@ -66,7 +67,8 @@ def quirky_lm(
         method="random" if mixture else "first",
         random_names=random_names,
         easy_quantile=easy_quantile,
-        hard_quantile=hard_quantile
+        hard_quantile=hard_quantile,
+        finetune=False
     )
 
     ########################
@@ -101,7 +103,7 @@ def quirky_lm(
     bob_train = None
     alice_untrusted = None
     if include_untrusted:
-        bob_train = dataset["train"].filter(lambda x: "Bob" in x["statement"] and x["difficulty_quantile"] < easy_quantile)
+        bob_train = dataset["train"].filter(lambda x: any(name in x["statement"] for name in BOB_NAMES[:4]) and x["difficulty_quantile"] < easy_quantile)
 
         n = len(alice)
         alice_trusted = alice.select(range(n // 2))
@@ -124,10 +126,10 @@ def quirky_lm(
 
     return Task.from_separate_data(
         model=HuggingfaceLM(model=model, tokenizer=tokenizer, device=device),
-        trusted_data=quirky_dataset(alice_trusted),
-        clean_test_data=quirky_dataset(alice_test),
-        anomalous_test_data=quirky_dataset(bob_test),
-        clean_untrusted_data=quirky_dataset(alice_untrusted),
-        anomalous_untrusted_data=quirky_dataset(bob_train),
+        trusted_data=quirky_dataset(alice_trusted.select(range(min(len(alice_trusted), max_split_size)))),
+        clean_test_data=quirky_dataset(alice_test.select(range(min(len(alice_test), max_split_size)))),
+        anomalous_test_data=quirky_dataset(bob_test.select(range(min(len(bob_test), max_split_size)))),
+        clean_untrusted_data=quirky_dataset(alice_untrusted.select(range(min(len(alice_untrusted), max_split_size)))),
+        anomalous_untrusted_data=quirky_dataset(bob_train.select(range(min(len(bob_train), max_split_size)))),
         train_test_mix=True
     )
