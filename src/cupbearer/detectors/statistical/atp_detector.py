@@ -3,7 +3,6 @@ from abc import ABC
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Any, Tuple, Dict
-
 from tqdm import tqdm
 from sklearn.ensemble import IsolationForest
 import torch
@@ -12,6 +11,94 @@ from cupbearer.detectors.statistical.statistical import ActivationCovarianceBase
 from cupbearer.data import HuggingfaceDataset
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
+from collections import defaultdict
+import pdb
+
+
+@contextmanager
+def edge_intervention(model: nn.Module, noise_acts: Dict[str, Tensor], n_layers: int = 4, *, head_dim: int = 0):
+    handles: list[nn.modules.module.RemovableHandle] = []
+    mod_to_clean: dict[nn.Module, Tensor] = {}
+    mod_to_noise: dict[nn.Module, Tensor] = {}
+    effects: defaultdict[str, Tensor] = defaultdict(list)
+    mod_to_name: dict[nn.Module, str] = {}
+    mod_to_parents: dict[nn.Module, list[nn.Module]] = {}
+    
+    def get_layer(name: str) -> int:
+        return next((int(part) for part in name.split('.') if part.isdigit()), float('inf'))
+    
+    def bwd_hook(module: nn.Module, grad_input: tuple[Tensor, ...] | Tensor, grad_output: tuple[Tensor, ...] | Tensor):
+        if isinstance(grad_output, tuple):
+            grad_output, *_ = grad_output
+        
+        target_name = mod_to_name[module]
+        head_target = head_dim > 0 and target_name.endswith('self_attn')
+        if head_target:
+            grad_output = grad_output.unflatten(-1, (-1, head_dim))
+
+        for original_module in mod_to_parents[module]:
+            original_name = mod_to_name[original_module]
+            clean = mod_to_clean[original_module]
+            noise = mod_to_noise[original_module]
+            
+            if original_name.endswith('self_attn'):
+                # Reshape tensors to (..., n_heads, head_dim)
+                n_heads = clean.shape[-1] // head_dim
+                clean = clean.view(*clean.shape[:-1], n_heads, head_dim)
+                noise = noise.view(1, n_heads, head_dim)
+
+                # Compute effects for each head
+                effects_list = []
+                for i in range(n_heads):
+                    direction = (noise[:, i, :] - clean[..., i, :].unsqueeze(1)).unsqueeze(-2).expand_as(clean.unsqueeze(1))
+                    if not head_target:
+                        direction = direction.flatten(-2, -1)
+                        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).unsqueeze(-1).detach()
+                    else:
+                        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).detach()
+                    effects_list.append(effect)
+                
+                # Concatenate effects
+                effect = torch.cat(effects_list, dim=-1).detach()
+            else:
+                direction = noise - clean.unsqueeze(1)
+                effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).unsqueeze(-1).detach()
+            
+            effects[original_name].append(effect)
+
+    def fwd_hook(module: nn.Module, input: tuple[Tensor] | Tensor, output: tuple[Tensor, ...] | Tensor):
+        if isinstance(output, tuple):
+            output, *_ = output
+        mod_to_clean[module] = output.detach()
+
+    modules = list(model.named_modules())
+
+
+    for i, (name, module) in enumerate(modules):
+        mod_to_name[module] = name
+        mod_to_parents[module] = []
+        current_layer = get_layer(name)
+        
+        for j in range(0, i):
+            parent_name, parent_module = modules[j]
+            parent_layer = get_layer(parent_name)
+            if current_layer - parent_layer <= n_layers and parent_name in noise_acts and (mod_to_name[module].endswith('mlp') or mod_to_name[module].endswith('self_attn')):
+                mod_to_parents[module].append(parent_module)
+        
+        if name in noise_acts:
+            handles.append(module.register_forward_hook(fwd_hook))
+            mod_to_noise[module] = noise_acts[name]
+        
+        if mod_to_parents[module]:
+            handles.append(module.register_full_backward_hook(bwd_hook))
+
+    try:
+        yield effects
+
+    finally:
+        for handle in handles:
+            handle.remove()
+        model.zero_grad()
 
 
 @contextmanager
@@ -81,7 +168,7 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
             grad_output = grad_output.unflatten(-1, (-1, head_dim))
 
         # Batched dot product
-        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
+        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).detach()
         # Save the effect
         name = mod_to_name[module]
         effects[name] = effect
@@ -120,7 +207,8 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
         model.zero_grad()
 
 @contextmanager
-def raw_gradient_capture(model: nn.Module):
+def raw_gradient_capture(model: nn.Module, noise: dict[str, torch.Tensor]):
+    layers = list(noise.keys())
     handles = []
     effects = {}
     mod_to_name = {}
@@ -129,11 +217,12 @@ def raw_gradient_capture(model: nn.Module):
         if isinstance(grad_output, tuple):
             grad_output = grad_output[0]
         name = mod_to_name[module]
-        effects[name] = grad_output.permute(0, 2, 1).detach()
+        effects[name] = grad_output.detach().unsqueeze(1)
 
     for name, module in model.named_modules():
         mod_to_name[module] = name
-        handles.append(module.register_full_backward_hook(backward_hook))
+        if name in layers:
+            handles.append(module.register_full_backward_hook(backward_hook))
 
     try:
         yield effects
@@ -166,11 +255,13 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         self.effect_capture_method = effect_capture_method
         self.effect_capture_args = effect_capture_args
 
-    def _setup_effect_capture(self, noise: torch.Tensor | None = None):
+    def _setup_effect_capture(self, noise: dict[str, torch.Tensor] | None = None):
         if self.effect_capture_method == 'atp':
             return lambda model: atp(model, noise, head_dim=128)
+        elif self.effect_capture_method == 'edge_intervention':
+            return lambda model: edge_intervention(model, noise, head_dim=128)
         elif self.effect_capture_method == 'raw':
-            return raw_gradient_capture
+            return lambda model: raw_gradient_capture(model, noise)
         else:
             raise ValueError(f"Unknown effect capture method: {self.effect_capture_method}")
 
@@ -189,34 +280,51 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         dtype = self.model.hf_model.dtype
         device = self.model.hf_model.device
 
-        if self.effect_capture_method == 'atp':
+        if self.effect_capture_method in ['atp', 'edge_intervention']:
             with torch.no_grad():
                 self.noise = self.get_noise_tensor(trusted_data, batch_size, device, dtype)
         else:
-            self.noise = None
+            self.noise = {name: None for name in self.shapes.keys()}
 
         effect_capture_func = self._setup_effect_capture(self.noise)
 
         self._n = 0
-        if 'ablation' in self.effect_capture_args and self.effect_capture_args['ablation'] == 'pcs':
-            noise_batch_size = self.noise[list(self.noise.keys())[0]][0].shape[0]
-        else:
-            noise_batch_size = self.noise[list(self.noise.keys())[0]].shape[0]
         
+        dataloader = torch.utils.data.DataLoader(trusted_data, batch_size=batch_size)
+
+        sample_batch = next(iter(dataloader))
+
+        # Perform a single forward and backward pass to get the effect shapes
+        inputs = utils.inputs_from_batch(sample_batch)
+        with effect_capture_func(self.model) as sample_effects:
+            out = self.model(inputs).logits
+            out = self.output_func(out)
+            out.backward()
+
         self._effects = {
-            name: torch.zeros(len(trusted_data), noise_batch_size * 32, device=device)
-            for name, shape in self.shapes.items()
+            name: torch.zeros(
+                len(trusted_data),
+                effect.shape[-1],
+                device=device
+            ) if isinstance(effect, torch.Tensor)
+            else torch.zeros(
+                len(trusted_data),
+                torch.cat(effect, dim=-1).shape[-1],
+                device=device
+            )
+            for name, effect in sample_effects.items()
         }
+                
         self._means = {
-            name: torch.zeros(noise_batch_size * 32, device=device)
-            for name, shape in self.shapes.items()
+            name: torch.zeros(effect.shape[-1], device=device) if isinstance(effect, torch.Tensor)
+            else torch.zeros(torch.cat(effect, dim=-1).shape[-1], device=device)
+            for name, effect in sample_effects.items()
         }
         self._Cs = {
-            name: torch.zeros(noise_batch_size * 32, noise_batch_size * 32, device=device)
-            for name, shape in self.shapes.items()
+            name: torch.zeros(effect.shape[-1], effect.shape[-1], device=device) if isinstance(effect, torch.Tensor)
+            else torch.zeros(torch.cat(effect, dim=-1).shape[-1], torch.cat(effect, dim=-1).shape[-1], device=device)
+            for name, effect in sample_effects.items()
         }
-
-        dataloader = torch.utils.data.DataLoader(trusted_data, batch_size=batch_size)
 
         for i, batch in tqdm(enumerate(dataloader)):
             inputs = utils.inputs_from_batch(batch)
@@ -228,6 +336,8 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             self._n += batch_size
 
             for name, effect in effects.items():
+                if isinstance(effect, list):
+                    effect = torch.cat(effect, dim=-1)
                 # Get the effect at the last token
                 effect = effect[:, :, -1]
                 # Merge the last dimensions
@@ -242,7 +352,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         self.post_train(untrusted_data=untrusted_data)
 
     def get_noise_tensor(self, trusted_data, batch_size, device, dtype, 
-                         subset_size=1000, activation_batch_size=16):
+                         subset_size=1000, activation_batch_size=8):
         if self.effect_capture_args['ablation'] == 'mean':
             indices = torch.randperm(len(trusted_data))[:subset_size]
             subset = HuggingfaceDataset(
@@ -287,6 +397,8 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
                 out.backward()
 
         for name, effect in effects.items():
+            if isinstance(effect, list):
+                effect = torch.cat(effect, dim=-1)
             effects[name] = effect[:, :, -1].reshape(batch_size, -1)
 
         scores = {
