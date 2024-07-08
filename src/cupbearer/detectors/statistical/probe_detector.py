@@ -12,11 +12,11 @@ from collections import defaultdict
 from typing import Any
 import pdb
 
-from cupbearer.detectors.statistical.helpers import local_outlier_factor, concat_to_single_layer
 from cupbearer.detectors.statistical.trajectory_detector import TrajectoryDetector, mahalanobis_from_data
 from cupbearer.detectors.statistical.atp_detector import AttributionDetector
 from cupbearer.detectors.statistical.atp_detector import atp
 from cupbearer.detectors.activation_based import CacheBuilder
+
 
 def probe_error(test_features, learned_features):
     return test_features.abs().topk(max(1, int(0.01 * test_features.size(1))), dim=1).values.mean(dim=1)
@@ -122,7 +122,7 @@ class AtPProbeDetector(AttributionDetector):
         trusted_data: torch.utils.data.Dataset,
         untrusted_data: torch.utils.data.Dataset | None,
         save_path: Path | str | None,
-        batch_size: int = 20,
+        batch_size: int = 1,
         **kwargs,
     ):
         assert trusted_data is not None
@@ -152,7 +152,7 @@ class AtPProbeDetector(AttributionDetector):
         self._effects['out'] = torch.zeros(len(trusted_data), 1, device=device)
 
         dataloader = torch.utils.data.DataLoader(trusted_data, batch_size=batch_size)
-
+        torch.cuda.empty_cache()
 
         for i, batch in tqdm(enumerate(dataloader)):
             inputs = utils.inputs_from_batch(batch)
@@ -160,22 +160,35 @@ class AtPProbeDetector(AttributionDetector):
                 outputs = self.model(inputs)
                 logits_model = outputs.logits[:, -1, self.vocab].diff(1)
                 logits_model.sum().backward()
+            
+            self.model.zero_grad()
+
+            del outputs
+            torch.cuda.empty_cache()
 
             with atp(self.model, self.noise, head_dim=128) as probe_effects:
                 outputs = self.model(inputs)
                 hidden_states = outputs.hidden_states[self.layers[0]]
                 logits_lens = self.lens.forward(hidden_states, self.layers[0])[:, -1, self.vocab].diff(1)
                 logits_lens.sum().backward()
-                diff = logits_model - logits_lens
+                diff = logits_model.detach() - logits_lens.detach()
                 self._effects['out'][i: i + len(batch[0])] = diff.cpu()
+            
+            self.model.zero_grad()
+            self.lens.zero_grad()
+            
+            del outputs, hidden_states, logits_lens, logits_model
+            torch.cuda.empty_cache()
 
-            for name, effect in probe_effects.items():
+            for name, probe_effect in probe_effects.items():
                 # Get the effect at the last token
-                effect = effect[:, :, -1]
+                effect = effects[name][:, :, -1].detach()
                 # Merge the last dimensions
                 effect = effect.reshape(batch_size, -1)
-                probe_effect = probe_effects[name][:, :, -1].reshape(batch_size, -1)
+                probe_effect = probe_effect[:, :, -1].detach().reshape(batch_size, -1)
                 self._effects[name][i: i + len(batch[0])] = (effect - probe_effect).cpu()
+            del effects, probe_effects
+            torch.cuda.empty_cache()
 
         self.post_train()
 
@@ -204,10 +217,10 @@ class AtPProbeDetector(AttributionDetector):
                 diff = logits_model - logits_lens
                 test_features['out'] = diff
 
-        for name, effect in effects.items():
+        for name, probe_effect in probe_effects.items():
             # Get the effect at the last token
-            effect = effect[:, :, -1].reshape(batch_size, -1)
-            probe_effect = probe_effects[name][:, :, -1].reshape(batch_size, -1)
+            effect = effects[name][:, :, -1].reshape(batch_size, -1)
+            probe_effect = probe_effect[:, :, -1].reshape(batch_size, -1)
             effect_diff = effect - probe_effect
             test_features[name] = effect_diff
 
