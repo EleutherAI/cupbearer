@@ -148,9 +148,11 @@ class ActivationCovarianceBasedDetector(StatisticalDetector):
 
         # Post process
         with torch.inference_mode():
-            self.means = self._means
-            self.covariances = {k: C / (self._ns[k] - 1) for k, C in self._Cs.items()}
-            if any(torch.count_nonzero(C) == 0 for C in self.covariances.values()):
-                raise RuntimeError("All zero covariance matrix detected.")
+            if hasattr(self, "_means"):
+                self.means = self._means
+            if hasattr(self, "_Cs"):
+                self.covariances = {k: C / (self._ns[k] - 1) for k, C in self._Cs.items()}
+                if any(torch.count_nonzero(C) == 0 for C in self.covariances.values()):
+                    raise RuntimeError("All zero covariance matrix detected.")
 
             self.post_covariance_training(**kwargs)

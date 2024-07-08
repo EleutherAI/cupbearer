@@ -14,3 +14,4 @@ from .trajectory_detector import TrajectoryDetector
 from .probe_detector import SimpleProbeDetector
 from .contrast_detector import MisconceptionContrastDetector, ProbeTrajectoryDetector
 from .likelihood_ratio_detector import LikelihoodRatioDetector, ExpectationMaximisationDetector
+from .isoforest_detector import IsoForestDetector

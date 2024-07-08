@@ -37,7 +37,11 @@ def main(
         random_names=True, 
         layerwise=True, 
         alpha=8):
-    interval = max(1, (last_layer - first_layer) // 8)
+    
+    n_layers = 8
+    # if dataset == 'sciq':
+    #     n_layers = 4
+    interval = max(1, (last_layer - first_layer) // n_layers)
     layers = list(range(first_layer, last_layer + 1, interval))
 
     task = tasks.quirky_lm(
@@ -45,15 +49,16 @@ def main(
         mixture=True, 
         standardize_template=True, 
         dataset=dataset, 
-        random_names=random_names
+        random_names=random_names,
+        max_split_size=4000
         )
 
     no_token = task.model.tokenizer.encode(' No', add_special_tokens=False)[-1]
     yes_token = task.model.tokenizer.encode(' Yes', add_special_tokens=False)[-1]
     effect_tokens = torch.tensor([no_token, yes_token], dtype=torch.long, device="cpu")
 
-
-    cache_path = f"cache/{dataset}-{task.model.hf_model.config.name_or_path.split('/')[-1]}.pt"
+    # Absolute path so everyone on Eleuther nodes can reuse the same cache. You might need to mess with permissions.
+    cache_path = f"/mnt/ssd-1/david/cupbearer/cache/{dataset}-{task.model.hf_model.config.name_or_path.split('/')[-1]}-{first_layer}-{last_layer}-{interval}.pt"
     activation_cache = None
 
     if Path(cache_path).exists():
@@ -86,12 +91,14 @@ def main(
         effect_capture_args = {}
         if ablation == 'raw':
             effect_capture_method = 'raw'
-        else:
+        elif ablation in ['mean', 'zero']:
             effect_capture_method = 'atp'
             effect_capture_args['ablation'] = ablation
             if ablation == 'pcs':
                 effect_capture_args['n_pcs'] = 10
-
+        elif ablation == 'edge_mean':
+            effect_capture_method = 'edge_intervention'
+            effect_capture_args['ablation'] = 'mean'
 
         if detector_type == "mahalanobis":
             detector = atp_detector.MahaAttributionDetector(
@@ -149,8 +156,6 @@ def main(
                 activation_processing_func=activation_processing_function,
                 cache=activation_cache
             )
-        elif detector_type == "isoforest":
-            raise NotImplementedError
         elif detector_type == "lof":
             detector = detectors.statistical.lof_detector.LOFDetector(
                 activation_names=layer_list,
@@ -184,6 +189,12 @@ def main(
             )
         elif detector_type == 'probe_trajectory':
             detector = detectors.statistical.contrast_detector.ProbeTrajectoryDetector(
+                activation_names=layer_list,
+                activation_processing_func=activation_processing_function,
+                cache=activation_cache
+            )
+        elif detector_type == 'isoforest':
+            detector = detectors.statistical.isoforest_detector.IsoForestDetector(
                 activation_names=layer_list,
                 activation_processing_func=activation_processing_function,
                 cache=activation_cache
@@ -223,7 +234,6 @@ def main(
             activation_processing_func=activation_processing_function,
             distance_function=mahalanobis_from_data,
             ablation=ablation,
-            cache=activation_cache
         )
         elif detector_type == "lof":
             detector = detectors.statistical.probe_detector.AtPProbeDetector(
@@ -232,7 +242,6 @@ def main(
             activation_processing_func=activation_processing_function,
             distance_function=local_outlier_factor,
             ablation=ablation,
-            cache=activation_cache
         )
         elif detector_type == "probe":
             detector = detectors.statistical.probe_detector.AtPProbeDetector(
@@ -241,7 +250,6 @@ def main(
             activation_processing_func=activation_processing_function,
             distance_function=probe_error,
             ablation=ablation,
-            cache=activation_cache
         )
  
         emb = task.model.hf_model.get_input_embeddings()
@@ -272,6 +280,8 @@ def main(
         save_path += f"-{k}"
     if detector_type == "que":
         save_path += f"-{alpha}"
+    if features == "attribution":
+        save_path += f"-{ablation}"
 
 
     if Path(save_path).exists():
@@ -297,7 +307,7 @@ if __name__ == '__main__':
     parser.add_argument('--first_layer', type=int, required=True, help='First layer to use')
     parser.add_argument('--last_layer', type=int, required=True, help='Last layer to use')
     parser.add_argument('--features', type=str, required=True, help='Features to use (attribution, trajectories, probe or activations)')
-    parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw'], help='Ablation to use (mean, zero, pcs, or raw)')
+    parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw', 'edge_mean'], help='Ablation to use (mean, zero, pcs, edge_mean or raw)')
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use (sciq, addition)')
     parser.add_argument('--k', type=int, default=20, help='k to use for LOF')
     parser.add_argument('--sweep_layers', action='store_true', default=False, help='Sweep layers one by one')
