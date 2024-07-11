@@ -169,10 +169,10 @@ class ActivationBasedDetector(AnomalyDetector):
         self.activation_processing_func = activation_processing_func
         self.cache = cache
 
-    def _get_activations_no_cache(self, inputs) -> dict[str, torch.Tensor]:
+    def _get_activations_no_cache(self, inputs, no_grad: bool = True) -> dict[str, torch.Tensor]:
         device = next(self.model.parameters()).device
         inputs = utils.inputs_to_device(inputs, device)
-        acts = utils.get_activations(self.model, self.activation_names, inputs)
+        acts = utils.get_activations(self.model, self.activation_names, inputs, no_grad=no_grad)
 
         # Can be used to for example select activations at specific token positions
         if self.activation_processing_func is not None:

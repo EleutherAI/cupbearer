@@ -16,6 +16,7 @@ from cupbearer.detectors.statistical.trajectory_detector import TrajectoryDetect
 from cupbearer.detectors.statistical.atp_detector import AttributionDetector
 from cupbearer.detectors.statistical.atp_detector import atp
 from cupbearer.detectors.activation_based import CacheBuilder
+from cupbearer.data import HuggingfaceDataset
 
 
 def probe_error(test_features, learned_features):
@@ -94,13 +95,13 @@ class AtPProbeDetector(AttributionDetector):
             | None = None,
             distance_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = probe_error,
             ablation: str = 'mean',
-            cache: CacheBuilder = None
+            cache: CacheBuilder = None,
             ):
         # Hardcoded for now, we want to select multiple eventually
-        self.layers = [29]
+        self.predictive_layers = (['hf_model.model.layers.2.input_layernorm.input'] + 
+                                  [f'hf_model.model.layers.{layer}.input_layernorm.input' for layer in range(6,32,5)])
 
         base_model = AutoModelForCausalLM.from_pretrained(base_model_name)
-        self.lens = TunedLens.from_model_and_pretrained(base_model, lens_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(base_model_name)
         self.distance_function = distance_function
         del base_model
@@ -123,11 +124,11 @@ class AtPProbeDetector(AttributionDetector):
         untrusted_data: torch.utils.data.Dataset | None,
         save_path: Path | str | None,
         batch_size: int = 1,
+        subset_size: int = 3000,
         **kwargs,
     ):
         assert trusted_data is not None
         self.model.hf_model.config.output_hidden_states = True
-        self.lens.to(self.model.hf_model.device)
         dtype = self.model.hf_model.dtype
         device = self.model.hf_model.device
 
@@ -141,17 +142,60 @@ class AtPProbeDetector(AttributionDetector):
             self.noise = self.get_noise_tensor(trusted_data, batch_size, device, dtype)
 
         if self.effect_capture_args['ablation'] == 'pcs':
-            noise_batch_size = self.noise[list(self.noise.keys())[0]][0].shape[0]
+            noise_batch_size = next(iter(self.noise.values()))[0].shape[0]
         else:
-            noise_batch_size = self.noise[list(self.noise.keys())[0]].shape[0]
+            noise_batch_size = next(iter(self.noise.values())).shape[0]
         
+        def layer_num(layer_name):
+            return int(layer_name.split('.')[3])
+
+        activation_layer_nums = [layer_num(name) for name in self.activation_names]
+        predictive_layer_nums = [layer_num(layer) for layer in self.predictive_layers]
+
         self._effects = {
-            name: torch.zeros(len(trusted_data), noise_batch_size * 32, device=device)
-            for name, shape in self.shapes.items()
+            name: torch.zeros(
+                len(trusted_data), 
+                noise_batch_size * 32 * sum(1 for a_num in activation_layer_nums if a_num < p_num),
+                device=device
+            )
+            for name, p_num in zip(self.predictive_layers, predictive_layer_nums)
         }
-        self._effects['out'] = torch.zeros(len(trusted_data), 1, device=device)
 
         dataloader = torch.utils.data.DataLoader(trusted_data, batch_size=batch_size)
+
+        indices = torch.randperm(len(trusted_data))[:subset_size]
+        subset = HuggingfaceDataset(
+            trusted_data.hf_dataset.select(indices),
+            text_key=trusted_data.text_key,
+            label_key=trusted_data.label_key
+        )
+        lens_dl = torch.utils.data.DataLoader(subset, batch_size=batch_size)
+
+        # Get activations from the predictive layers
+        self.intervention_layers = self.activation_names
+        self.activation_names = self.predictive_layers
+
+        activations = {layer: [] for layer in self.predictive_layers}
+        answers = []
+
+        for batch in tqdm(lens_dl):
+            inputs, labels = batch
+            new_activations = self.get_activations(batch)
+            for layer in self.activation_names:
+                activations[layer].append(new_activations[layer].cpu())
+            answers.append(labels)
+
+        activations = {layer: torch.cat(activations[layer], dim=0) for layer in self.activation_names}
+        answers = torch.cat(answers, dim=0)
+
+        self.lens = {}
+
+        for layer in self.predictive_layers:
+            self.lens[layer] = utils.classifier.Classifier(input_dim=activations[layer].shape[-1], device=self.model.device)
+            self.lens[layer].fit_cv(activations[layer].to(self.model.device), answers.to(self.model.device))
+
+        del activations, answers
+        gc.collect()
         torch.cuda.empty_cache()
 
         for i, batch in tqdm(enumerate(dataloader)):
@@ -160,35 +204,21 @@ class AtPProbeDetector(AttributionDetector):
                 outputs = self.model(inputs)
                 logits_model = outputs.logits[:, -1, self.vocab].diff(1)
                 logits_model.sum().backward()
-            
-            self.model.zero_grad()
 
-            del outputs
-            torch.cuda.empty_cache()
+            effects = torch.cat(list(effects.values()), dim=-1)[:, :, -1].reshape(batch_size, -1)
 
-            with atp(self.model, self.noise, head_dim=128) as probe_effects:
-                outputs = self.model(inputs)
-                hidden_states = outputs.hidden_states[self.layers[0]]
-                logits_lens = self.lens.forward(hidden_states, self.layers[0])[:, -1, self.vocab].diff(1)
-                logits_lens.sum().backward()
-                diff = logits_model.detach() - logits_lens.detach()
-                self._effects['out'][i: i + len(batch[0])] = diff.cpu()
-            
-            self.model.zero_grad()
-            self.lens.zero_grad()
-            
-            del outputs, hidden_states, logits_lens, logits_model
-            torch.cuda.empty_cache()
+            probe_effect_dict = {}
 
-            for name, probe_effect in probe_effects.items():
-                # Get the effect at the last token
-                effect = effects[name][:, :, -1].detach()
-                # Merge the last dimensions
-                effect = effect.reshape(batch_size, -1)
-                probe_effect = probe_effect[:, :, -1].detach().reshape(batch_size, -1)
-                self._effects[name][i: i + len(batch[0])] = (effect - probe_effect).cpu()
-            del effects, probe_effects
-            torch.cuda.empty_cache()
+            # This is pretty inefficient -- a forward and backward pass for each probe layer
+            for layer in self.predictive_layers:
+                with atp(self.model, self.noise, head_dim=128) as probe_effects:
+                    activations = self._get_activations_no_cache(inputs, no_grad=False)
+                    logits_lens = self.lens[layer].forward(activations[layer])
+                    logits_lens.sum().backward()
+                probe_effect_dict[layer] = torch.cat(list(probe_effects.values()), dim=-1)[:, :, -1].reshape(batch_size, -1)
+
+            for name, probe_effect in probe_effect_dict.items():
+                self._effects[name][i: i + len(batch[0])] = (effects[:, :probe_effect.shape[1]] - probe_effect).cpu()
 
         self.post_train()
 
@@ -197,45 +227,42 @@ class AtPProbeDetector(AttributionDetector):
 
     def layerwise_scores(self, batch) -> dict[str, torch.Tensor]:
         inputs = utils.inputs_from_batch(batch)
-        test_features = defaultdict(lambda: torch.empty((len(batch), 1)))
+        test_features = defaultdict(lambda: torch.empty((len(batch[0]), 1)))
         self.model.hf_model.config.output_hidden_states = True
-        self.lens.to(self.model.hf_model.device)
+        for lens in self.lens.values():
+            lens.to(self.model.hf_model.device)
         batch_size = len(batch[0])
+
+        self.intervention_layers = self.activation_names
+        self.activation_names = self.predictive_layers
 
         with torch.enable_grad():
             with atp(self.model, self.noise, head_dim=128) as effects:
                 outputs = self.model(inputs)
                 logits_model = outputs.logits[:, -1, self.vocab].diff(1)
-                hidden_states = outputs.hidden_states[self.layers[0]]
                 logits_model.sum().backward()
 
-            with atp(self.model, self.noise, head_dim=128) as probe_effects:
-                outputs = self.model(inputs)
-                hidden_states = outputs.hidden_states[self.layers[0]]
-                logits_lens = self.lens.forward(hidden_states, self.layers[0])[:, -1, self.vocab].diff(1)
-                logits_lens.sum().backward()
-                diff = logits_model - logits_lens
-                test_features['out'] = diff
+            effects = torch.cat(list(effects.values()), dim=-1)[:, :, -1].reshape(batch_size, -1)
 
-        for name, probe_effect in probe_effects.items():
-            # Get the effect at the last token
-            effect = effects[name][:, :, -1].reshape(batch_size, -1)
-            probe_effect = probe_effect[:, :, -1].reshape(batch_size, -1)
-            effect_diff = effect - probe_effect
-            test_features[name] = effect_diff
+            probe_effect_dict = {}
+            for layer in self.predictive_layers:
+                with atp(self.model, self.noise, head_dim=128) as probe_effects:
+                    activations = self._get_activations_no_cache(inputs, no_grad=False)
+                    logits_lens = self.lens[layer].forward(activations[layer])
+                    logits_lens.sum().backward()
+                probe_effect_dict[layer] = torch.cat(list(probe_effects.values()), dim=-1)[:, :, -1].reshape(batch_size, -1)
+
+            for name, probe_effect in probe_effect_dict.items():
+                test_features[name] = (effects[:, :probe_effect.shape[1]] - probe_effect).cpu()
 
         scores = {
-            k: self._individual_layerwise_score(
-                k,
-                test_features[k]
-            )
-            for k in test_features.keys()
+            k: self._individual_layerwise_score(k, v)
+            for k, v in test_features.items()
         }
 
         for k, v in scores.items():
-            # Unflatten distances so we can take the mean over the independent axis
             scores[k] = rearrange(
-                v, "(batch independent) -> batch independent", batch=len(batch[0])
+                v, "(batch independent) -> batch independent", batch=batch_size
             ).mean(dim=1)
 
         return scores
@@ -243,10 +270,11 @@ class AtPProbeDetector(AttributionDetector):
     def _get_trained_variables(self, saving: bool = False):
         return{
             "effects": self.effects,
-            "noise": self.noise
+            "noise": self.noise,
+            "lens": self.lens
         }
 
     def _set_trained_variables(self, variables):
         self.effects = variables["effects"]
         self.noise = variables["noise"]
-
+        self.lens = variables["lens"]

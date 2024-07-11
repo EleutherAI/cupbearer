@@ -8,7 +8,8 @@ from .lof_detector import LOFDetector
 from .atp_detector import (
     MahaAttributionDetector,
     IsoForestAttributionDetector,
-    LOFAttributionDetector
+    LOFAttributionDetector,
+    ImpactfulDeviationDetector
 )
 from .trajectory_detector import TrajectoryDetector
 from .probe_detector import SimpleProbeDetector

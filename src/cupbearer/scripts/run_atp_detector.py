@@ -2,6 +2,7 @@ import torch
 import argparse
 from cupbearer import detectors, tasks, utils, scripts
 from cupbearer.detectors.statistical import atp_detector
+from cupbearer.detectors.statistical.atp_detector import ImpactfulDeviationDetector
 from pathlib import Path
 from cupbearer.detectors.activations import get_last_token_activation_function_for_task
 from cupbearer.detectors.statistical.probe_detector import probe_error
@@ -36,7 +37,8 @@ def main(
         k=20, 
         random_names=True, 
         layerwise=True, 
-        alpha=8):
+        alpha=8,
+        impact_threshold=1.e-4):
     
     n_layers = 8
     # if dataset == 'sciq':
@@ -91,7 +93,7 @@ def main(
         effect_capture_args = {}
         if ablation == 'raw':
             effect_capture_method = 'raw'
-        elif ablation in ['mean', 'zero']:
+        elif ablation in ['mean', 'zero', 'pcs']:
             effect_capture_method = 'atp'
             effect_capture_args['ablation'] = ablation
             if ablation == 'pcs':
@@ -107,7 +109,8 @@ def main(
                 effect_capture_method=effect_capture_method,
                 effect_capture_args=effect_capture_args,
                 activation_processing_func=activation_processing_function,
-                cache=activation_cache
+                cache=activation_cache,
+                append_activations=False
                 )
         elif detector_type == "isoforest":
             detector = atp_detector.IsoForestAttributionDetector(
@@ -136,6 +139,16 @@ def main(
                 effect_capture_args=effect_capture_args,
                 activation_processing_func=activation_processing_function,
                 cache=activation_cache
+            )
+        elif detector_type == 'impactful_deviation':
+            detector = ImpactfulDeviationDetector(
+                layer_dict, 
+                effect_prob_func, 
+                effect_capture_method=effect_capture_method,
+                effect_capture_args=effect_capture_args,
+                activation_processing_func=activation_processing_function,
+                cache=activation_cache,
+                impact_threshold=impact_threshold
             )
 
         emb = task.model.hf_model.get_input_embeddings()
@@ -315,6 +328,7 @@ if __name__ == '__main__':
     parser.add_argument('--sweep_alpha', action='store_true', default=False, help='Sweep alpha one by one')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
+    parser.add_argument('--impact_threshold', type=float, default=1e-4, help='Impact threshold for ImpactfulDeviationDetector')
 
     args = parser.parse_args()
 
@@ -330,7 +344,8 @@ if __name__ == '__main__':
             k=args.k, 
             alpha=alpha, 
             layerwise=args.layerwise, 
-            random_names=not args.nonrandom_names
+            random_names=not args.nonrandom_names,
+            impact_threshold=args.impact_threshold
         )
 
     if args.sweep_alpha:

@@ -13,6 +13,8 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 from collections import defaultdict
 import pdb
+import os
+import matplotlib.pyplot as plt
 
 
 @contextmanager
@@ -244,6 +246,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             effect_capture_method: str,
             effect_capture_args: dict = dict(),
             activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor] | None = None,
+            append_activations: bool = False,
             **kwargs
             ):
         
@@ -254,6 +257,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         self.output_func = output_func
         self.effect_capture_method = effect_capture_method
         self.effect_capture_args = effect_capture_args
+        self.append_activations = append_activations
 
     def _setup_effect_capture(self, noise: dict[str, torch.Tensor] | None = None):
         if self.effect_capture_method == 'atp':
@@ -300,6 +304,12 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             out = self.model(inputs).logits
             out = self.output_func(out)
             out.backward()
+        
+        if self.append_activations:
+            acts = self.get_activations(sample_batch)
+            for name, act in acts.items():
+                sample_effects[name.replace('.output', '')] = torch.cat([
+                    sample_effects[name.replace('.output', '')][:, :, -1], act.unsqueeze(1)], dim=-1)
 
         self._effects = {
             name: torch.zeros(
@@ -335,11 +345,19 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
 
             self._n += batch_size
 
+            if self.append_activations:
+                acts = self.get_activations(batch)          
+                for name, act in acts.items():
+                    effects[name.replace('.output', '')] = torch.cat([
+                        effects[name.replace('.output', '')][:, :, -1], act.unsqueeze(1)], dim=-1
+                    )
+
             for name, effect in effects.items():
                 if isinstance(effect, list):
                     effect = torch.cat(effect, dim=-1)
                 # Get the effect at the last token
-                effect = effect[:, :, -1]
+                if not self.append_activations:
+                    effect = effect[:, :, -1]
                 # Merge the last dimensions
                 effect = effect.reshape(batch_size, -1)
                 self._effects[name][i] = effect
@@ -396,6 +414,13 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
                 out = self.output_func(out)
                 out.backward()
 
+        if self.append_activations:
+            acts = self.get_activations(batch)          
+            for name, act in acts.items():
+                effects[name.replace('.output', '')] = torch.cat([
+                    effects[name.replace('.output', '')][:, :, -1], act.unsqueeze(1)], dim=-1
+                )
+
         for name, effect in effects.items():
             if isinstance(effect, list):
                 effect = torch.cat(effect, dim=-1)
@@ -411,6 +436,70 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
     def post_train(self, untrusted_data=None, batch_size=1):
         pass
 
+class ImpactfulDeviationDetector(AttributionDetector):
+    def __init__(
+            self, 
+            shapes: dict[str, tuple[int, ...]], 
+            output_func: Callable[[torch.Tensor], torch.Tensor],
+            effect_capture_method: str,
+            effect_capture_args: dict = dict(),
+            activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor] | None = None,
+            impact_threshold: float = 0.05,
+            **kwargs
+            ):
+        super().__init__(shapes, output_func, effect_capture_method, effect_capture_args, activation_processing_func, **kwargs)
+        self.impact_threshold = impact_threshold
+        self.layer_aggregation = 'sum'
+
+    def post_train(self, untrusted_data=None, batch_size=1):
+        self.mean_impacts = {name: effect.abs().mean(dim=0) for name, effect in self._effects.items()}
+        self.low_impact_masks = {name: self.get_low_impact_mask(name) for name in self.mean_impacts.keys()}
+
+    def get_low_impact_mask(self, name: str):
+        threshold = torch.quantile(self.mean_impacts[name], self.impact_threshold)
+        return self.mean_impacts[name] < threshold
+
+    def save_impact_histograms(self, save_dir: str):
+        os.makedirs(save_dir, exist_ok=True)
+        
+        for name, impacts in self.mean_impacts.items():
+            plt.figure(figsize=(10, 6))
+            plt.hist(impacts.cpu().numpy(), bins=50, edgecolor='black')
+            plt.title(f'Impact Histogram for {name}')
+            plt.xlabel('Impact')
+            plt.ylabel('Frequency')
+            plt.axvline(x=self.impact_threshold, color='r', linestyle='--', label='Threshold')
+            plt.legend()
+            plt.savefig(os.path.join(save_dir, f'{name}_impact_histogram.png'))
+            plt.close()
+
+    def train(self, trusted_data, untrusted_data, save_path, batch_size=1, **kwargs):
+        super().train(trusted_data, untrusted_data, save_path, batch_size, **kwargs)
+        
+        # Save impact histograms after training
+        if save_path:
+            histogram_dir = os.path.join(save_path, 'impact_histograms')
+            self.save_impact_histograms(histogram_dir)
+
+    def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
+        # Focus on units that had low impact in trusted data but high impact in this sample
+        scores = effects.abs() * self.low_impact_masks[name].float()
+
+        return scores.sum(dim=-1)
+
+    def _get_trained_variables(self, saving: bool = False):
+        return {
+            "means": self._means,
+            "low_impact_masks": self.low_impact_masks,
+            "mean_impacts": self.mean_impacts,
+            "noise": self.noise
+        }
+
+    def _set_trained_variables(self, variables):
+        self._means = variables["means"]
+        self.mean_impacts = variables["mean_impacts"]
+        self.low_impact_masks = {name: self.get_low_impact_mask(name) for name in self.mean_impacts.keys()}
+        self.noise = variables["noise"]
 
 class MahaAttributionDetector(AttributionDetector):
     def post_train(self, **kwargs):
