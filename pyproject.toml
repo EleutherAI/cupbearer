@@ -41,6 +41,7 @@ quirky_lm = [
     "peft",
 ]
 tiny_natural_mechanisms = ["blobfile", "transformer_lens"]
+adversarial = ["robustbench @ git+https://github.com/RobustBench/robustbench.git"]
 
 [project.urls]
 "Homepage" = "https://github.com/ejnnr/cupbearer"

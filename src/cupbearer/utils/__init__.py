@@ -125,6 +125,8 @@ def inputs_from_batch(batch):
     # Ensure result is a tuple or list of strings
     if isinstance(result, str):
         return (result,)
+    elif isinstance(result, torch.Tensor):
+        return result
     elif isinstance(result, (tuple, list)) and all(isinstance(item, str) for item in result):
         return result
     elif isinstance(result, (tuple, list)) and len(result) > 0 and all(isinstance(item, str) for item in result[0]):

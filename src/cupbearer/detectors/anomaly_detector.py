@@ -172,27 +172,33 @@ class AnomalyDetector(ABC):
             logger.info(f"Perfect filter remainder ({layer}): {1 - num_negatives/np.sum(labels[layer]==0)}")
             metrics[layer]["Perfect_filter_remainder"] = 1 - num_negatives/np.sum(labels[layer]==0)
 
-            auc_roc_agree = sklearn.metrics.roc_auc_score(
-                y_true=labels[layer][agreement[layer].astype(bool)],
-                y_score=scores[layer][agreement[layer].astype(bool)],
-            )
-            ap_agree = sklearn.metrics.average_precision_score(
-                y_true=labels[layer][agreement[layer].astype(bool)],
-                y_score=scores[layer][agreement[layer].astype(bool)],
-            )
+            if np.any(agreement[layer].astype(bool)):
+                auc_roc_agree = sklearn.metrics.roc_auc_score(
+                    y_true=labels[layer][agreement[layer].astype(bool)],
+                    y_score=scores[layer][agreement[layer].astype(bool)],
+                )
+                ap_agree = sklearn.metrics.average_precision_score(
+                    y_true=labels[layer][agreement[layer].astype(bool)],
+                    y_score=scores[layer][agreement[layer].astype(bool)],
+                )
+            else:
+                auc_roc_agree = ap_agree = 0.5
             logger.info(f"AUC_ROC_AGREE ({layer}): {auc_roc_agree:.4f}")
             logger.info(f"AP_AGREE ({layer}): {ap_agree:.4f}")
             metrics[layer]["AUC_ROC_AGREE"] = auc_roc_agree
             metrics[layer]["AP_AGREE"] = ap_agree
 
-            auc_roc_disagree = sklearn.metrics.roc_auc_score(
-                y_true=labels[layer][~agreement[layer].astype(bool)],
-                y_score=scores[layer][~agreement[layer].astype(bool)],
-            )
-            ap_disagree = sklearn.metrics.average_precision_score(
-                y_true=labels[layer][~agreement[layer].astype(bool)],
-                y_score=scores[layer][~agreement[layer].astype(bool)],
-            )
+            if np.any(~agreement[layer].astype(bool)):
+                auc_roc_disagree = sklearn.metrics.roc_auc_score(
+                    y_true=labels[layer][~agreement[layer].astype(bool)],
+                    y_score=scores[layer][~agreement[layer].astype(bool)],
+                )
+                ap_disagree = sklearn.metrics.average_precision_score(
+                    y_true=labels[layer][~agreement[layer].astype(bool)],
+                    y_score=scores[layer][~agreement[layer].astype(bool)],
+                )
+            else:
+                auc_roc_disagree = ap_disagree = 0.5
             logger.info(f"AUC_ROC_DISAGREE ({layer}): {auc_roc_disagree:.4f}")
             logger.info(f"AP_DISAGREE ({layer}): {ap_disagree:.4f}")
             metrics[layer]["AUC_ROC_DISAGREE"] = auc_roc_disagree
@@ -290,6 +296,8 @@ class AnomalyDetector(ABC):
             return sum(scores) / len(scores)  # type: ignore
         elif self.layer_aggregation == "max":
             return torch.amax(torch.stack(list(scores)), dim=0)
+        elif self.layer_aggregation == "sum":
+            return torch.sum(torch.stack(list(scores)), dim=0)
         else:
             raise ValueError(f"Unknown layer aggregation: {self.layer_aggregation}")
 

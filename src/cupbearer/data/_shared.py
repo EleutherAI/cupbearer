@@ -32,6 +32,9 @@ class MixedData(Dataset):
         self.anomalous_data = anomalous
         self.normal_weight = normal_weight
         self.return_labels = return_labels
+
+
+
         if normal_weight is None:
             self.normal_len = len(normal)
             self.anomalous_len = len(anomalous)
@@ -66,11 +69,21 @@ class MixedData(Dataset):
             raise IndexError(
                 f"Index {index} out of bounds for dataset of length {self._length}"
             )
-        if index < self.normal_len:
-            if len(self.return_labels) > 0:
-                return self.normal_data[index], self.get_labels(self.normal_data.hf_dataset[index], 0)
-            return self.normal_data[index]
+        if hasattr(self.normal_data, 'hf_dataset'):
+            if index < self.normal_len:
+                if len(self.return_labels) > 0:
+                    return self.normal_data[index], self.get_labels(self.normal_data.hf_dataset[index], 0)
+                return self.normal_data[index]
+            else:
+                if len(self.return_labels) > 0:
+                    return self.anomalous_data[index - self.normal_len], self.get_labels(self.anomalous_data.hf_dataset[index - self.normal_len], 1)
+                return self.anomalous_data[index - self.normal_len]
         else:
-            if len(self.return_labels) > 0:
-                return self.anomalous_data[index - self.normal_len], self.get_labels(self.anomalous_data.hf_dataset[index - self.normal_len], 1)
-            return self.anomalous_data[index - self.normal_len]
+            if index < self.normal_len:
+                if 'anomaly' in self.return_labels:
+                    return self.normal_data[index], (0, 0)
+                return self.normal_data[index]
+            else:
+                if 'anomaly' in self.return_labels:
+                    return self.anomalous_data[index - self.normal_len], (1, 0)
+                return self.anomalous_data[index - self.normal_len]
