@@ -39,9 +39,12 @@ def build_cache(dataset, layers, batch_size, first_layer, last_layer, interval):
         torch.cuda.empty_cache()
         return
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     detector = detectors.activation_based.CacheBuilder(
-        cache_path=cache_path,
-        activation_names=layers,
+        cache_path,
+        layers,
+        device,
         activation_processing_func=activation_processing_function,
     )
     

@@ -59,12 +59,14 @@ def main(
     yes_token = task.model.tokenizer.encode(' Yes', add_special_tokens=False)[-1]
     effect_tokens = torch.tensor([no_token, yes_token], dtype=torch.long, device="cpu")
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     # Absolute path so everyone on Eleuther nodes can reuse the same cache. You might need to mess with permissions.
     cache_path = f"/mnt/ssd-1/david/cupbearer/cache/{dataset}-{task.model.hf_model.config.name_or_path.split('/')[-1]}-{first_layer}-{last_layer}-{interval}.pt"
     activation_cache = None
 
     if Path(cache_path).exists():
-        activation_cache = detectors.activation_based.ActivationCache.load(cache_path)
+        activation_cache = detectors.activation_based.ActivationCache.load(cache_path, device)
 
     def effect_prob_func(logits):
         assert logits.ndim == 3

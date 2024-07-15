@@ -56,8 +56,10 @@ def main(
     cache_path = f"/mnt/ssd-1/david/cupbearer/cache/{dataset}-{model_name}-{max_n_layers}.pt"
     activation_cache = None
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     if Path(cache_path).exists():
-        activation_cache = detectors.activation_based.ActivationCache.load(cache_path)
+        activation_cache = detectors.activation_based.ActivationCache.load(cache_path, device)
 
     activation_processing_function = lambda x, *args: x
 
