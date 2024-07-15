@@ -19,3 +19,7 @@ __pycache__
 .cupbearer_cache/
 .ruff_cache/
 lightning_logs/
+cache/
+mem_traces/
+models/
+notebooks/models/
