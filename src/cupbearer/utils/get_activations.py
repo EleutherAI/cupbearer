@@ -8,7 +8,7 @@ class _Finished(Exception):
 
 
 def get_activations(
-    model: torch.nn.Module, names: list[str], *args, no_grad: bool = True, **kwargs
+    *args, model: torch.nn.Module, names: list[str], no_grad: bool = True, **kwargs
 ) -> dict[str, torch.Tensor]:
     """Get the activations of the model for the given inputs.
 
@@ -92,10 +92,10 @@ def get_activations(
 
 
 def get_activations_and_grads(
+    *args,
     model: torch.nn.Module,
     names: list[str],
     output_func: Callable[[torch.Tensor], torch.Tensor],
-    *args,
     **kwargs,
 ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     """Get the activations and gradients of the model for the given inputs.

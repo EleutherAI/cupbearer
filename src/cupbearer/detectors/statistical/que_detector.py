@@ -10,13 +10,19 @@ from cupbearer.detectors.statistical.statistical import (
 
 
 class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
-    def __init__(self, activation_names: list[str], alpha: float, **kwargs):
-        super().__init__(activation_names, **kwargs)
-        self.alpha = alpha
+    """Detector based on the "quantum entropy" score.
+
+    Based on https://arxiv.org/abs/1906.11366 and inspired by SPECTRE
+    (https://arxiv.org/abs/2104.11315) but much simpler. We don't do dimensionality
+    reduction, and instead of using robust estimation for the clean mean and covariance,
+    we just assume access to clean data like for our other anomaly detection methods.
+    """
+
+    use_untrusted: bool = True
 
     def post_covariance_training(self, rcond: float = 1e-5, **kwargs):
         whitening_matrices = {}
-        for k, cov in self.covariances.items():
+        for k, cov in self.covariances["trusted"].items():
             # Compute decomposition
             eigs = torch.linalg.eigh(cov)
 
@@ -32,69 +38,36 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
             assert torch.allclose(
                 whitening_matrices[k], eigs.eigenvectors @ vals_rsqrt.diag()
             )
-        self.whitening_matrices = whitening_matrices
+        self.trusted_whitening_matrices = whitening_matrices
 
-    def batch_update_untrusted(self, activations: dict[str, torch.Tensor]):
-        for k, activation in activations.items():
-            # Flatten the activations to (batch, dim)
-            activation = rearrange(activation, "batch ... dim -> (batch ...) dim")
-            assert activation.ndim == 2, activation.shape
-            self._activations[k] = torch.cat([self._activations[k], activation], dim=0)
+        self.untrusted_covariance_norms = {}
+        for k, cov in self.covariances["untrusted"].items():
+            self.untrusted_covariance_norms[k] = torch.linalg.eigvalsh(cov).max()
 
-    def train(self, trusted_data, untrusted_data, **kwargs):
-        super().train(
-            trusted_data=trusted_data, untrusted_data=untrusted_data, **kwargs
-        )
-
-        # Post process
-        with torch.inference_mode():   
-            self.use_trusted = False
-
-            self._activations = {k: torch.empty(0, self.means[k].shape[0], device=self.means[k].device) for k in self.means.keys()}
-
-            data_loader = DataLoader(untrusted_data, batch_size=kwargs.get('batch_size', 1024), shuffle=False)
-            for batch in tqdm(data_loader):
-                activations = self.get_activations(batch)
-                self.batch_update_untrusted(activations)
-
-            whitened_activations = {
-                k: torch.einsum(
-                    "bi,ij->bj",
-                    self._activations[k].flatten(start_dim=1) - self.means[k],
-                    self.whitening_matrices[k],
-                )
-                for k in self._activations.keys()
-            }
-            # Center the whitened activations
-            whitened_activations = {
-                k: whitened_activations[k].flatten(start_dim=1) - 
-                whitened_activations[k].flatten(start_dim=1).mean(dim=0, keepdim=True) 
-                for k in whitened_activations.keys()
-            }
-
-            self.untrusted_covariances = {k: whitened_activations[k].mT @ whitened_activations[k] for k in whitened_activations.keys()}
 
     def _individual_layerwise_score(self, name, activation):
         whitened_activations = torch.einsum(
             "bi,ij->bj",
-            activation.flatten(start_dim=1) - self.means[name],
-            self.whitening_matrices[name],
+            activation.flatten(start_dim=1) - self.means["trusted"][name],
+            self.trusted_whitening_matrices[name],
         )
         # TODO should possibly pass rank
-        return quantum_entropy(whitened_activations, 
-                               alpha=self.alpha,
-                               batch_cov=self.untrusted_covariances[name])
+        return quantum_entropy(
+            whitened_activations,
+            self.covariances["untrusted"][name],
+            self.untrusted_covariance_norms[name],
+        )
 
-    def _get_trained_variables(self, saving: bool = False):
+    def _get_trained_variables(self):
         return {
             "means": self.means,
-            "whitening_matrices": self.whitening_matrices,
-            "untrusted_covariances": self.untrusted_covariances,
+            "whitening_matrices": self.trusted_whitening_matrices,
             "covariances": self.covariances,
+            "untrusted_covariance_norms": self.untrusted_covariance_norms,
         }
 
     def _set_trained_variables(self, variables):
         self.means = variables["means"]
+        self.trusted_whitening_matrices = variables["whitening_matrices"]
         self.covariances = variables["covariances"]
-        self.whitening_matrices = variables["whitening_matrices"]
-        self.untrusted_covariances = variables["untrusted_covariances"]
+        self.untrusted_covariance_norms = variables["untrusted_covariance_norms"]
