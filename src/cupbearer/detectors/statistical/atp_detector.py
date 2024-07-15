@@ -9,6 +9,7 @@ import torch
 from cupbearer import detectors, utils
 from cupbearer.detectors.statistical.statistical import ActivationCovarianceBasedDetector
 from cupbearer.data import HuggingfaceDataset
+from cupbearer.models import HuggingfaceLM
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
 from collections import defaultdict
@@ -55,18 +56,18 @@ def edge_intervention(model: nn.Module, noise_acts: Dict[str, Tensor], n_layers:
                     direction = (noise[:, i, :] - clean[..., i, :].unsqueeze(1)).unsqueeze(-2).expand_as(clean.unsqueeze(1))
                     if not head_target:
                         direction = direction.flatten(-2, -1)
-                        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).unsqueeze(-1).detach()
+                        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).unsqueeze(-1)
                     else:
-                        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).detach()
+                        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
                     effects_list.append(effect)
                 
                 # Concatenate effects
                 effect = torch.cat(effects_list, dim=-1).detach()
             else:
                 direction = noise - clean.unsqueeze(1)
-                effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).unsqueeze(-1).detach()
+                effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).unsqueeze(-1)
             
-            effects[original_name].append(effect)
+            effects[original_name].append(effect.clone().detach())
 
     def fwd_hook(module: nn.Module, input: tuple[Tensor] | Tensor, output: tuple[Tensor, ...] | Tensor):
         if isinstance(output, tuple):
@@ -95,7 +96,7 @@ def edge_intervention(model: nn.Module, noise_acts: Dict[str, Tensor], n_layers:
             handles.append(module.register_full_backward_hook(bwd_hook))
 
     try:
-        yield effects
+        yield effects.clone().detach()
 
     finally:
         for handle in handles:
@@ -148,9 +149,11 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
         if isinstance(grad_output, tuple):
             grad_output, *_ = grad_output
 
-        # Use pop() to ensure we don't use the same activation multiple times
-        # and to save memory
         clean = mod_to_clean.pop(module)
+        seq = True
+        if clean.ndim == 4:
+            seq = False
+            clean = clean.view(-1, 1, clean.shape[-1])
 
         # If noise is tensor, replace acts with noise
         if isinstance(mod_to_noise[module], Tensor):
@@ -168,12 +171,18 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
         if head_dim > 0:
             direction = direction.unflatten(-1, (-1, head_dim))
             grad_output = grad_output.unflatten(-1, (-1, head_dim))
+        elif not seq:
+            direction = direction.squeeze(-2)
+            grad_output = grad_output.view(-1, 1, grad_output.shape[-1])
 
         # Batched dot product
-        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction)).detach()
+        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
         # Save the effect
         name = mod_to_name[module]
-        effects[name] = effect
+        if name in effects:
+            effects[name] += effect.clone().detach()
+        else:
+            effects[name] = effect.clone().detach()
 
     # Forward hook
     def fwd_hook(module: nn.Module, input: tuple[Tensor] | Tensor, output: tuple[Tensor, ...] | Tensor):
@@ -181,14 +190,15 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
         if isinstance(output, tuple):
             output, *_ = output
 
-        mod_to_clean[module] = output.detach()
+        mod_to_clean[module] = output.clone().detach()
 
     for name, module in model.named_modules():
         # Hooks need to be able to look up the name of a module
         mod_to_name[module] = name
         # Check if the module is in the paths
+        
         for path, noise in noise_acts.items():
-            if not name.endswith(path):
+            if not name == path:
                 continue
 
             # Add a hook to the module
@@ -197,6 +207,7 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
 
             # Save the noise activation
             mod_to_noise[module] = noise
+
 
     try:
         yield effects
@@ -247,6 +258,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             effect_capture_args: dict = dict(),
             activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor] | None = None,
             append_activations: bool = False,
+            head_dim: int = 128,
             **kwargs
             ):
         
@@ -258,12 +270,14 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         self.effect_capture_method = effect_capture_method
         self.effect_capture_args = effect_capture_args
         self.append_activations = append_activations
+        self.head_dim = head_dim
 
     def _setup_effect_capture(self, noise: dict[str, torch.Tensor] | None = None):
+
         if self.effect_capture_method == 'atp':
-            return lambda model: atp(model, noise, head_dim=128)
+            return lambda model: atp(model, noise, head_dim=self.head_dim)
         elif self.effect_capture_method == 'edge_intervention':
-            return lambda model: edge_intervention(model, noise, head_dim=128)
+            return lambda model: edge_intervention(model, noise, head_dim=self.head_dim)
         elif self.effect_capture_method == 'raw':
             return lambda model: raw_gradient_capture(model, noise)
         else:
@@ -279,10 +293,14 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         batch_size: int = 1,
         **kwargs,
     ):
-
         assert trusted_data is not None
-        dtype = self.model.hf_model.dtype
-        device = self.model.hf_model.device
+        if isinstance(self.model, HuggingfaceLM):
+            dtype = self.model.hf_model.dtype
+            device = self.model.hf_model.device
+        else:
+            dtype = next(self.model.parameters()).dtype
+            device = next(self.model.parameters()).device
+
 
         if self.effect_capture_method in ['atp', 'edge_intervention']:
             with torch.no_grad():
@@ -293,58 +311,70 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         effect_capture_func = self._setup_effect_capture(self.noise)
 
         self._n = 0
+        self._effects = dict()
         
-        dataloader = torch.utils.data.DataLoader(trusted_data, batch_size=batch_size)
+        dataloader = torch.utils.data.DataLoader(trusted_data, batch_size=1)
 
         sample_batch = next(iter(dataloader))
 
         # Perform a single forward and backward pass to get the effect shapes
         inputs = utils.inputs_from_batch(sample_batch)
+        inputs = utils.inputs_to_device(inputs, device)
         with effect_capture_func(self.model) as sample_effects:
-            out = self.model(inputs).logits
+            if isinstance(self.model, HuggingfaceLM):
+                out = self.model(inputs).logits
+            else:
+                out = self.model(inputs)
             out = self.output_func(out)
             out.backward()
-        
+
         if self.append_activations:
             acts = self.get_activations(sample_batch)
-            for name, act in acts.items():
-                sample_effects[name.replace('.output', '')] = torch.cat([
-                    sample_effects[name.replace('.output', '')][:, :, -1], act.unsqueeze(1)], dim=-1)
 
-        self._effects = {
-            name: torch.zeros(
-                len(trusted_data),
-                effect.shape[-1],
-                device=device
-            ) if isinstance(effect, torch.Tensor)
-            else torch.zeros(
-                len(trusted_data),
-                torch.cat(effect, dim=-1).shape[-1],
-                device=device
-            )
-            for name, effect in sample_effects.items()
-        }
-                
+        for name, effect in sample_effects.items():
+            if isinstance(self.model, HuggingfaceLM):
+                effect = effect[:, :, -1].reshape(1, -1)
+            if self.append_activations:
+                sample_effects[name.replace('.output', '')] = torch.cat([
+                    sample_effects[name.replace('.output', '')], act.unsqueeze(1)], dim=-1)
+            if isinstance(self.model, HuggingfaceLM):
+                self._effects[name] = torch.zeros(
+                    len(trusted_data),
+                    effect.shape[-1],
+                    device=device
+                )
+            # For vision models, each sample gives us a batch of effects
+            else:
+                self._effects[name] = torch.zeros(
+                    len(trusted_data),
+                    torch.tensor(effect.shape[:-1]).to(int).prod().item(),
+                    effect.shape[-1],
+                    device=device
+                )
         self._means = {
             name: torch.zeros(effect.shape[-1], device=device) if isinstance(effect, torch.Tensor)
             else torch.zeros(torch.cat(effect, dim=-1).shape[-1], device=device)
-            for name, effect in sample_effects.items()
+            for name, effect in self._effects.items()
         }
         self._Cs = {
             name: torch.zeros(effect.shape[-1], effect.shape[-1], device=device) if isinstance(effect, torch.Tensor)
             else torch.zeros(torch.cat(effect, dim=-1).shape[-1], torch.cat(effect, dim=-1).shape[-1], device=device)
-            for name, effect in sample_effects.items()
+            for name, effect in self._effects.items()
         }
+
+        dataloader = torch.utils.data.DataLoader(trusted_data, batch_size=batch_size)
 
         for i, batch in tqdm(enumerate(dataloader)):
             inputs = utils.inputs_from_batch(batch)
+            inputs = utils.inputs_to_device(inputs, device)
             with effect_capture_func(self.model) as effects:
-                out = self.model(inputs).logits
+                out = self.model(inputs)
+                if isinstance(self.model, HuggingfaceLM):
+                    out = out.logits
                 out = self.output_func(out)
                 out.backward()
 
             self._n += batch_size
-
             if self.append_activations:
                 acts = self.get_activations(batch)          
                 for name, act in acts.items():
@@ -356,11 +386,10 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
                 if isinstance(effect, list):
                     effect = torch.cat(effect, dim=-1)
                 # Get the effect at the last token
-                if not self.append_activations:
-                    effect = effect[:, :, -1]
-                # Merge the last dimensions
-                effect = effect.reshape(batch_size, -1)
-                self._effects[name][i] = effect
+                if not self.append_activations and isinstance(self.model, HuggingfaceLM):
+                    effect = effect[:, :, -1].reshape(batch_size, -1)
+                for j in range(batch_size):
+                    self._effects[name][i * batch_size + j] = effect.view(batch_size, -1, *effect.shape[1:])[j]
                 self._means[name], self._Cs[name], _ = (
                     detectors.statistical.helpers.update_covariance(
                         self._means[name], self._Cs[name], self._n, effect
@@ -410,7 +439,10 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
         # AnomalyDetector.eval() wraps everything in a no_grad block, need to undo that.
         with torch.enable_grad():
             with effect_capture_func(self.model) as effects:
-                out = self.model(inputs).logits
+                if isinstance(self.model, HuggingfaceLM):
+                    out = self.model(inputs).logits
+                else:
+                    out = self.model(inputs)
                 out = self.output_func(out)
                 out.backward()
 
@@ -421,13 +453,22 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
                     effects[name.replace('.output', '')][:, :, -1], act.unsqueeze(1)], dim=-1
                 )
 
+        seq = False
         for name, effect in effects.items():
             if isinstance(effect, list):
                 effect = torch.cat(effect, dim=-1)
-            effects[name] = effect[:, :, -1].reshape(batch_size, -1)
+            if isinstance(self.model, HuggingfaceLM):
+                effects[name] = effect[:, :, -1].reshape(batch_size, -1)
+                seq = True
 
-        scores = {
-                k: self._individual_layerwise_score(k, v)
+        if seq:
+            scores = {
+                    k: self._individual_layerwise_score(k, v)
+                    for k, v in effects.items()
+                }
+        else:
+            scores = {
+                k: self._individual_layerwise_score(k, v).reshape(batch_size, -1).mean(dim=-1)
                 for k, v in effects.items()
             }
  
@@ -616,6 +657,13 @@ class QueAttributionDetector(AttributionDetector):
 
     def post_train(self, untrusted_data, batch_size=1, rcond=1e-5):
 
+        if isinstance(self.model, HuggingfaceLM):
+            dtype = self.model.hf_model.dtype
+            device = self.model.hf_model.device
+        else:
+            dtype = next(self.model.parameters()).dtype
+            device = next(self.model.parameters()).device
+
         whitening_matrices = {}
         for k, cov in self._Cs.items():
             # Compute decomposition
@@ -637,40 +685,48 @@ class QueAttributionDetector(AttributionDetector):
         
         data_loader = DataLoader(untrusted_data, batch_size=batch_size, shuffle=False)
 
-        self.untrusted_covariances = {k: torch.zeros(32, 32, device=self.model.device) for k in self.shapes.keys()}
+        self.untrusted_covariances = {k: torch.zeros_like(self._Cs[k]) for k in self._Cs.keys()}
         self._n = 0
-        self._effect_means = {k: torch.zeros(32, device=self.model.device) for k in self.shapes.keys()}
+        self._untrusted_effect_means = {k: torch.zeros_like(self._means[k]) for k in self._means.keys()}
+        self._untrusted_effects = {k: torch.zeros((len(untrusted_data), *self._effects[k].shape[1:]), device=device) for k in self._effects.keys()}
 
-        for batch in tqdm(data_loader):
+        for i, batch in tqdm(enumerate(data_loader)):
             inputs = utils.inputs_from_batch(batch)
-            with atp(self.model, self.noise, head_dim=128) as untrusted_effects:
-                out = self.model(inputs).logits
+            with atp(self.model, self.noise, head_dim=self.head_dim) as untrusted_effects:
+                if isinstance(self.model, HuggingfaceLM):
+                    out = self.model(inputs).logits
+                else:
+                    out = self.model(inputs)
                 out = self.output_func(out)
                 # assert out.shape == (batch_size,), out.shape
                 out.backward()
+
             
             self._n += batch_size
 
             for name, effect in untrusted_effects.items():
                 # Get the effect at the last token
-                effect = effect[:, :, -1]
+                if isinstance(self.model, HuggingfaceLM):
+                    effect = effect[:, :, -1].reshape(batch_size, -1)
                 # Merge the last dimensions
-                effect = effect.reshape(batch_size, -1)
-                self._effect_means[name], self.untrusted_covariances[name], _ = detectors.statistical.helpers.update_covariance(
-                    self._effect_means[name], self.untrusted_covariances[name], self._n, effect
+                self._untrusted_effect_means[name], self.untrusted_covariances[name], _ = detectors.statistical.helpers.update_covariance(
+                    self._untrusted_effect_means[name], self.untrusted_covariances[name], self._n, effect
                     )
+                for j in range(batch_size):
+                    self._untrusted_effects[name][i * batch_size + j] = effect.view(batch_size, -1, *effect.shape[1:])[j]
 
+        # Center and whiten effects
         whitened_effects = {
             k: torch.einsum(
                 "bi,ij->bj",
-                self._effects[k].flatten(start_dim=1) - self._effect_means[k],
+                self._untrusted_effects[k].flatten(end_dim=-2) - self._means[k],
                 self.whitening_matrices[k],
             )
             for k in self._effects.keys()
         }
+
         whitened_effects = {
-            k: whitened_effects[k].flatten(start_dim=1) - 
-            whitened_effects[k].flatten(start_dim=1).mean(dim=0, keepdim=True) 
+            k: whitened_effects[k] - whitened_effects[k].mean(dim=0, keepdim=True)
             for k in whitened_effects.keys()
         }
 
@@ -678,10 +734,10 @@ class QueAttributionDetector(AttributionDetector):
 
     def _individual_layerwise_score(self, name: str, effects: torch.Tensor):
         whitened_test_effects = torch.einsum(
-                "bi,ij->bj",
-                effects.flatten(start_dim=1) - self._effect_means[name],
-                self.whitening_matrices[name],
-            )
+            "bi,ij->bj",
+            effects.flatten(start_dim=1) - self._untrusted_effect_means[name],
+            self.whitening_matrices[name],
+        )
 
         return detectors.statistical.helpers.quantum_entropy(
             whitened_test_effects,
@@ -690,14 +746,14 @@ class QueAttributionDetector(AttributionDetector):
 
     def _get_trained_variables(self, saving: bool = False):
         return {
-            "_effect_means": self._effect_means,
+            "_effect_means": self._untrusted_effect_means,
             "whitening_matrices": self.whitening_matrices,
             "untrusted_covariances": self.untrusted_covariances,
             "noise": self.noise
         }
 
     def _set_trained_variables(self, variables):
-        self._effect_means = variables["_effect_means"]
+        self._untrusted_effect_means = variables["_effect_means"]
         self.whitening_matrices = variables["whitening_matrices"]
         self.untrusted_covariances = variables["untrusted_covariances"]
         self.noise = variables["noise"]

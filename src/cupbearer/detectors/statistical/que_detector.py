@@ -37,10 +37,7 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
     def batch_update_untrusted(self, activations: dict[str, torch.Tensor]):
         for k, activation in activations.items():
             # Flatten the activations to (batch, dim)
-            if activation.ndim == 3:
-                activation = rearrange(
-                    activation, "batch independent dim -> (batch independent) dim"
-                )
+            activation = rearrange(activation, "batch ... dim -> (batch ...) dim")
             assert activation.ndim == 2, activation.shape
             self._activations[k] = torch.cat([self._activations[k], activation], dim=0)
 
@@ -68,6 +65,7 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
                 )
                 for k in self._activations.keys()
             }
+            # Center the whitened activations
             whitened_activations = {
                 k: whitened_activations[k].flatten(start_dim=1) - 
                 whitened_activations[k].flatten(start_dim=1).mean(dim=0, keepdim=True) 

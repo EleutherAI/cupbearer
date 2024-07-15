@@ -123,13 +123,13 @@ def inputs_from_batch(batch):
         result = batch
     
     # Ensure result is a tuple or list of strings
-    if isinstance(result, str):
+    if isinstance(result, (str)):
         return (result,)
-    elif isinstance(result, torch.Tensor):
+    if isinstance(result, torch.Tensor):
         return result
     elif isinstance(result, (tuple, list)) and all(isinstance(item, str) for item in result):
         return result
-    elif isinstance(result, (tuple, list)) and len(result) > 0 and all(isinstance(item, str) for item in result[0]):
+    elif isinstance(result, (tuple, list)) and len(result) > 0 and all(isinstance(item, (str, torch.Tensor)) for item in result[0]):
         return result[0]
     else:
         raise ValueError("Expected a string or a sequence of strings")

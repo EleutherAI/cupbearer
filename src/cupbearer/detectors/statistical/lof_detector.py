@@ -5,21 +5,14 @@ from cupbearer.detectors.statistical.statistical import StatisticalDetector, Act
 
 class LOFDetector(ActivationCovarianceBasedDetector):
     def init_variables(self, activation_sizes: dict[str, torch.Size], device):
-        for k, size in activation_sizes.items():
-            if len(size) not in (1, 2):
-                raise ValueError(
-                    f"Activation size {size} of {k} is not supported. "
-                    "Activations must be either 1D or 2D (in which case separate "
-                    "covariance matrices are learned along the first dimension)."
-                )
         self._activations = {
-            k: torch.empty((0, size[-1]), device=device)
+            k: torch.empty((0, torch.tensor(size).prod()), device=device)
             for k, size in activation_sizes.items()
         }
     
     def batch_update(self, activations: dict[str, torch.Tensor]):
         for k, activation in activations.items():
-            self._activations[k] = torch.cat([self._activations[k], activation], dim=0)
+            self._activations[k] = torch.cat([self._activations[k], activation.view(activation.shape[0], -1)], dim=0)
 
     def train(self, trusted_data, untrusted_data, **kwargs):
         StatisticalDetector.train(
@@ -29,8 +22,23 @@ class LOFDetector(ActivationCovarianceBasedDetector):
         # Post process
         self.activations = self._activations
 
+    def layerwise_scores(self, batch):
+        activations = self.get_activations(batch)
+        batch_size = next(iter(activations.values())).shape[0]
+        activations = {
+            k: v.view(batch_size, -1)
+            for k, v in activations.items()
+        }
+        scores = {
+            k: self._individual_layerwise_score(k, v) for k, v in activations.items()
+        }
+        return scores
+
+
     def _individual_layerwise_score(self, name: str, activations: torch.Tensor):
-        return local_outlier_factor(activations, self.activations[name])
+        reshaped_activations = activations.view(activations.shape[0], -1)
+        score = local_outlier_factor(reshaped_activations, self.activations[name])
+        return score
 
     def _get_trained_variables(self, saving: bool = False):
         return {

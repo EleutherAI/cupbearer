@@ -5,3 +5,4 @@ from .measurement_tampering import measurement_tampering
 from .quirky_lm import quirky_lm
 from .task import Task
 from .tiny_natural_mechanisms import tiny_natural_mechanisms
+from .adversarial_image import adversarial_image_task
