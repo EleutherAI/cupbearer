@@ -8,7 +8,7 @@ class _Finished(Exception):
 
 
 def get_activations(
-    *args, model: torch.nn.Module, names: list[str], no_grad: bool = True, **kwargs
+    *args, model: torch.nn.Module, names: list[str], **kwargs
 ) -> dict[str, torch.Tensor]:
     """Get the activations of the model for the given inputs.
 
@@ -72,13 +72,6 @@ def get_activations(
                 hooks.append(
                     module.register_forward_hook(make_hook(name + ".output", False))
                 )
-        if no_grad:
-            with torch.no_grad():
-                try:
-                    model(*args, **kwargs)
-                except _Finished:
-                    pass
-        else:
             try:
                 model(*args, **kwargs)
             except _Finished:

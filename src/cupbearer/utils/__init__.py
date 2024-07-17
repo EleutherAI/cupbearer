@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Union, overload
 import torch
 
+from cupbearer.models import HuggingfaceLM
 from .get_activations import get_activations, get_activations_and_grads  # noqa: F401
 
 SUFFIX = ".pt"
@@ -176,3 +177,14 @@ def reduce_size(
 
 def flatten_last(x):
     return torch.flatten(x, start_dim=1)
+
+def guess_device_dtype_from_model(model):
+    if isinstance(model, HuggingfaceLM):
+        dtype = model.hf_model.dtype
+        device = model.hf_model.device
+    elif isinstance(model, torch.nn.Module):
+        dtype = next(model.parameters()).dtype
+        device = next(model.parameters()).device
+    else:
+        raise ValueError(f"Unknown model type: {type(model)}")
+    return device, dtype

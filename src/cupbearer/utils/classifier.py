@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 
 import torch
-from concept_erasure import LeaceEraser
 from torch import Tensor
 from torch.nn.functional import (
     binary_cross_entropy_with_logits as bce_with_logits,
@@ -44,7 +43,6 @@ class Classifier(torch.nn.Module):
         self,
         input_dim: int,
         num_classes: int = 2,
-        eraser: LeaceEraser | None = None,
         device: str | torch.device | None = None,
         dtype: torch.dtype | None = None,
     ):
@@ -55,7 +53,6 @@ class Classifier(torch.nn.Module):
         )
         self.linear.bias.data.zero_()
         self.linear.weight.data.zero_()
-        self.eraser = eraser
 
     def forward(self, x: Tensor) -> Tensor:
         if self.eraser is not None:
@@ -191,65 +188,3 @@ class Classifier(torch.nn.Module):
         best_penalty = l2_penalties[best_idx]
         self.fit(x, y, l2_penalty=best_penalty, max_iter=max_iter)
         return RegularizationPath(l2_penalties, mean_losses.tolist())
-
-    @classmethod
-    def inlp(
-        cls,
-        x: Tensor,
-        y: Tensor,
-        eraser: LeaceEraser | None = None,
-        max_iter: int | None = None,
-        tol: float = 0.01,
-    ) -> InlpResult:
-        """Iterative Nullspace Projection (INLP) <https://arxiv.org/abs/2004.07667>.
-
-        Args:
-            x: Input tensor of shape (N, D), where N is the number of samples and D is
-                the input dimension.
-            y: Target tensor of shape (N,) for binary classification or (N, C) for
-                multiclass classification, where C is the number of classes.
-            eraser: Concept erasure function to use. If `None`, no erasure is performed.
-            max_iter: Maximum number of iterations to run. If `None`, run until the data
-                is linearly guarded (no linear classifier can extract information)
-            tol: Tolerance for the loss function. The algorithm will stop when the loss
-                is within `tol` of the entropy of the labels.
-
-        Returns:
-            `InlpResult` containing the classifiers and losses achieved at each
-            iteration.
-        """
-
-        y.shape[-1] if y.ndim > 1 else 2
-        d = x.shape[-1]
-        loss = 0.0
-
-        # Compute entropy of the labels
-        p = y.float().mean()
-        H = -p * torch.log(p) - (1 - p) * torch.log(1 - p)
-
-        max_iter = max_iter or d
-
-        # Iterate until the loss is within epsilon of the entropy
-        # meaning LR is not able to find a useful classifier anymore
-        result = InlpResult()
-        for _ in range(max_iter):
-            clf = cls(d, eraser=eraser, device=x.device, dtype=x.dtype)
-            loss = clf.fit(x, y)
-            result.classifiers.append(clf)
-            result.losses.append(loss)
-
-            if loss >= (1.0 - tol) * H:
-                break
-
-            # Project the data onto the nullspace of the classifier
-            x = clf.nullspace_project(x)
-
-        return result
-
-    def nullspace_project(self, x: Tensor) -> Tensor:
-        """Project the given data onto the nullspace of the classifier."""
-
-        # https://en.wikipedia.org/wiki/Projection_(linear_algebra)
-        A = self.linear.weight.data.T
-        P = A @ torch.linalg.solve(A.mT @ A, A.mT)
-        return x - x @ P
