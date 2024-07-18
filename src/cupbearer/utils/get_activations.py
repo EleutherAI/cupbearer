@@ -1,6 +1,7 @@
 from typing import Callable
 
 import torch
+from torch.profiler import profile, record_function, ProfilerActivity
 
 
 class _Finished(Exception):
@@ -72,10 +73,10 @@ def get_activations(
                 hooks.append(
                     module.register_forward_hook(make_hook(name + ".output", False))
                 )
-            try:
-                model(*args, **kwargs)
-            except _Finished:
-                pass
+        try:
+                    model(*args, **kwargs)
+        except _Finished:
+            pass
     finally:
         # Make sure we always remove hooks even if an exception is raised
         for hook in hooks:
