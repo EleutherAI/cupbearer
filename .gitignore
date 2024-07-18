@@ -24,3 +24,5 @@ mem_traces/
 models/
 notebooks/models/
 rename_results.sh
+notebooks/*.json
+*.json

@@ -5,9 +5,10 @@ import gc
 import torch
 
 from cupbearer import tasks, scripts
-from cupbearer.detectors.statistical.mahalanobis_detector import MahalanobisDetector
-from cupbearer.detectors.extractors.attribution_effect_extractor import AttributionEffectExtractor
-from cupbearer.detectors.activations import get_last_token_activation_function_for_task
+from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector
+from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor
+from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task
+from cupbearer.detectors.extractors.core import FeatureCache
 import gc
 
 datasets = [
@@ -22,7 +23,7 @@ datasets = [
     "subtraction",
     "multiplication",
     "modularaddition",
-    # "squaring", Not trained yet
+    "squaring",
 ]
 
 
@@ -32,6 +33,8 @@ def main(
     last_layer,
     model_name,
     ablation,
+    features,
+    score,
     random_names=True,
     layerwise=True,
 ):
@@ -52,35 +55,58 @@ def main(
     yes_token = task.model.tokenizer.encode(' Yes', add_special_tokens=False)[-1]
     effect_tokens = torch.tensor([no_token, yes_token], dtype=torch.long, device="cpu")
 
-    def effect_prob_func(logits):
+    def effect_prob_func(out):
+        logits = out.logits
         assert logits.ndim == 3
-        probs = logits.softmax(-1)
-        return probs[:, -1, effect_tokens].diff(1).sum()
+        return logits[:, -1, effect_tokens].diff(1)[:,0]
 
     activation_processing_function = get_last_token_activation_function_for_task(task)
 
     layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
+    cache_path = f"cache/{dataset}-{features}-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}"
+    if features == "attribution":
+        cache_path += f"-{ablation}"
+    cache = FeatureCache.load(cache_path + ".pt", device=task.model.device) if Path(cache_path + ".pt").exists() else FeatureCache(device=task.model.device)
 
-    effect_capture_args = {'ablation': ablation, 'model_type': 'transformer'}
-    if ablation == 'pcs':
-        effect_capture_args['n_pcs'] = 10
+    if features == 'attribution':
+        effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
+        if ablation == 'pcs':
+            effect_capture_args['n_pcs'] = 10
+    
+        feature_extractor = AttributionEffectExtractor(
+            names=list(layer_dict.keys()),
+            output_func=effect_prob_func,
+            effect_capture_args=effect_capture_args,
+            individual_processing_fn=activation_processing_function,
+            trusted_data=task.trusted_data,
+            model=task.model,
+            cache_path=f"cache/{dataset}-activations-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}.pt",
+            cache=cache
+        )
 
-    feature_extractor = AttributionEffectExtractor(
-        activation_names=list(layer_dict.keys()),
-        output_func=effect_prob_func,
-        effect_capture_args=effect_capture_args,
-        individual_processing_fn=activation_processing_function,
-        trusted_data=task.trusted_data,
-        model=task.model
-    )
+        emb = task.model.hf_model.get_input_embeddings()
+        emb.requires_grad_(True)
+    elif features == 'activations':
+        layer_dict = {f"hf_model.model.layers.{layer}.input_layernorm.input": (4096,) for layer in layers}
 
-    detector = MahalanobisDetector(feature_extractor)
+        feature_extractor = ActivationExtractor(
+            names=list(layer_dict.keys()),
+            individual_processing_fn=activation_processing_function,
+            cache=cache
+        )
+
+    if score == 'mahalanobis':
+        detector = MahalanobisDetector(feature_extractor)
+    elif score == 'que':
+        detector = QuantumEntropyDetector(feature_extractor)
+    else:
+        raise ValueError(f"Unknown score: {score}")
     detector.set_model(task.model)
 
     batch_size = 1
     eval_batch_size = 1
 
-    save_path = f"logs/quirky/{dataset}-mahalanobis-attribution-{model_name}-{first_layer}-{last_layer}-{ablation}"
+    save_path = f"logs/quirky/{dataset}-{score}-{features}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
 
     if Path(save_path).exists():
         detector.load_weights(Path(save_path) / "detector")
@@ -99,6 +125,8 @@ def main(
             layerwise=layerwise
         )
     
+    cache.store(cache_path)
+    
     del task, detector
     gc.collect()
 
@@ -111,6 +139,8 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
+    parser.add_argument('--features', type=str, default='activations', help='Features to use')
+    parser.add_argument('--score', type=str, default='mahalanobis', help='Score to use')
 
     args = parser.parse_args()
 
@@ -122,6 +152,8 @@ if __name__ == '__main__':
                 args.last_layer,
                 args.model_name,
                 args.ablation,
+                args.features,
+                args.score,
                 random_names=not args.nonrandom_names,
                 layerwise=args.layerwise,
             )
@@ -132,6 +164,8 @@ if __name__ == '__main__':
             args.last_layer,
             args.model_name,
             args.ablation,
+            args.features,
+            args.score,
             random_names=not args.nonrandom_names,
             layerwise=args.layerwise,
         )

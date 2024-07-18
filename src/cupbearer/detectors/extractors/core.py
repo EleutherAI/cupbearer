@@ -9,7 +9,6 @@ from torch.utils.data import Dataset
 from cupbearer import utils
 from cupbearer.data import MixedData
 
-
 class FeatureCache:
     """Cache for features to speed up using multiple anomaly detectors.
 
@@ -61,8 +60,8 @@ class FeatureCache:
                 count += 1
         return count
 
-    def store(self, path: str | Path):
-        utils.save(self.cache, path)
+    def store(self, path: str | Path, overwrite: bool = False):
+        utils.save(self.cache, path, overwrite=overwrite)
 
     @classmethod
     def load(cls, path: str | Path, device: str, storage_device: str = "cpu"):
@@ -202,7 +201,6 @@ class FeatureExtractor(ABC):
         device = next(self.model.parameters()).device
         inputs = utils.inputs_to_device(inputs, device)
         features = self.compute_features(inputs)
-
         # Can be used to for example select activations at specific token positions
         if self.individual_processing_fn is not None:
             features = {

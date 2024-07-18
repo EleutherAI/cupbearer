@@ -176,8 +176,6 @@ class AnomalyDetector(ABC):
         # when we assume that anomaly labels are included.
         assert isinstance(dataset, MixedData), type(dataset)
 
-        dataset.return_anomaly_agreement = True
-
         test_loader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -193,14 +191,14 @@ class AnomalyDetector(ABC):
             test_loader = tqdm(test_loader, desc="Evaluating", leave=False)
 
         scores = defaultdict(list)
-        labels = []
+        anomaly_labels = []
         agreement = []
 
         # It's important we don't use torch.inference_mode() here, since we want
         # to be able to override this in certain detectors using torch.enable_grad().
         with torch.no_grad():
             for batch in test_loader:
-                inputs, (new_labels, new_agreements) = batch
+                (inputs, _), (new_labels, new_agreements) = batch
                 if layerwise:
                     new_scores = self.compute_layerwise_scores(inputs)
                 else:
@@ -213,22 +211,22 @@ class AnomalyDetector(ABC):
                     if isinstance(score, torch.Tensor):
                         score = score.cpu().numpy()
                     assert score.shape == new_labels.shape
-                    scores.append(score)
-                labels.append(new_labels)
+                    scores[layer].append(score)
+                anomaly_labels.append(new_labels)
                 agreement.append(new_agreements)
         scores = {layer: np.concatenate(scores[layer]) for layer in scores}
-        labels = np.concatenate(labels)
+        anomaly_labels = np.concatenate(anomaly_labels)
         agreement = np.concatenate(agreement)
 
         figs = {}
 
         for layer in scores:
             auc_roc = sklearn.metrics.roc_auc_score(
-                y_true=labels,
+                y_true=anomaly_labels,
                 y_score=scores[layer],
             )
             ap = sklearn.metrics.average_precision_score(
-                y_true=labels,
+                y_true=anomaly_labels,
                 y_score=scores[layer],
             )
             logger.info(f"AUC_ROC ({layer}): {auc_roc:.4f}")
@@ -238,19 +236,19 @@ class AnomalyDetector(ABC):
 
             # Calculate the number of negative examples to filter to catch all positives
             sorted_indices = np.argsort(scores[layer])[::-1]
-            sorted_labels = labels[sorted_indices]
+            sorted_labels = anomaly_labels[sorted_indices]
             cut_point = np.where(sorted_labels == 1)[0][-1] + 1
-            num_negatives = np.sum(labels[layer][:cut_point]==0)
-            logger.info(f"Perfect filter remainder ({layer}): {1 - num_negatives/np.sum(labels==0)}")
-            metrics[layer]["Perfect_filter_remainder"] = 1 - num_negatives/np.sum(labels==0)
+            num_negatives = np.sum(anomaly_labels[:cut_point]==0)
+            logger.info(f"Perfect filter remainder ({layer}): {1 - num_negatives/np.sum(anomaly_labels==0)}")
+            metrics[layer]["Perfect_filter_remainder"] = 1 - num_negatives/np.sum(anomaly_labels==0)
 
-            if np.any(agreement[layer].astype(bool)):
+            if np.any(agreement.astype(bool)):
                 auc_roc_agree = sklearn.metrics.roc_auc_score(
-                    y_true=labels[agreement.astype(bool)],
+                    y_true=anomaly_labels[agreement.astype(bool)],
                     y_score=scores[layer][agreement.astype(bool)],
                 )
                 ap_agree = sklearn.metrics.average_precision_score(
-                    y_true=labels[agreement.astype(bool)],
+                    y_true=anomaly_labels[agreement.astype(bool)],
                     y_score=scores[layer][agreement.astype(bool)],
                 )
             else:
@@ -262,11 +260,11 @@ class AnomalyDetector(ABC):
 
             if np.any(~agreement.astype(bool)):
                 auc_roc_disagree = sklearn.metrics.roc_auc_score(
-                    y_true=labels[~agreement.astype(bool)],
+                    y_true=anomaly_labels[~agreement.astype(bool)],
                     y_score=scores[layer][~agreement.astype(bool)],
                 )
                 ap_disagree = sklearn.metrics.average_precision_score(
-                    y_true=labels[~agreement.astype(bool)],
+                    y_true=anomaly_labels[~agreement.astype(bool)],
                     y_score=scores[layer][~agreement.astype(bool)],
                 )
             else:
@@ -287,7 +285,7 @@ class AnomalyDetector(ABC):
             for j, agree_label in enumerate(["Disagree", "Agree"]):
                 fig, ax = plt.subplots()
                 for i, name in enumerate(["Normal", "Anomalous"]):
-                    class_labels = labels[layer][agreement == j]
+                    class_labels = anomaly_labels[agreement == j]
                     vals = scores[layer][agreement == j][class_labels == i]
                     ax.hist(
                         vals,
@@ -318,10 +316,10 @@ class AnomalyDetector(ABC):
             for layer, layer_scores in scores.items():
                 # "false positives" etc. isn't quite right because there's no threshold
                 false_positives = np.argsort(
-                    np.where(labels == 0, layer_scores, -np.inf)
+                    np.where(anomaly_labels == 0, layer_scores, -np.inf)
                 )[-10:]
                 false_negatives = np.argsort(
-                    np.where(labels == 1, layer_scores, np.inf)
+                    np.where(anomaly_labels == 1, layer_scores, np.inf)
                 )[:10]
 
                 print("\nNormal but high anomaly score:\n")

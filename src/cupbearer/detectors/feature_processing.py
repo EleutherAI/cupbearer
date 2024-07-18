@@ -12,7 +12,6 @@ def get_last_token_activation_function_for_task(task: Task, randperm: bool = Fal
         """Get the activations at the last token of each input."""
         # The activation should be (batch, sequence, residual dimension)
         assert activation.ndim == 3, activation.shape
-        assert activation.shape[-1] == 4096, activation.shape
         batch_size = len(inputs)
 
         # Tokenize the inputs to know how many tokens there are. It's a bit unfortunate
@@ -29,5 +28,3 @@ def get_last_token_activation_function_for_task(task: Task, randperm: bool = Fal
         return acts
     
     return get_activation_at_last_token
-
-

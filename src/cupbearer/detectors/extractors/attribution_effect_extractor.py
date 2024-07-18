@@ -1,17 +1,19 @@
 from typing import Any, Callable, Dict, Tuple
-
+from pathlib import Path
 import torch
 from torch import nn
 
 from cupbearer.utils.get_attribution_effects import get_effects
-from .core import FeatureExtractor
+from .activation_extractor import ActivationExtractor
+from .core import FeatureExtractor, FeatureCache
 from cupbearer.data import HuggingfaceDataset
+from cupbearer.utils import guess_device_dtype_from_model
 
 
 class AttributionEffectExtractor(FeatureExtractor):
     def __init__(
         self,
-        activation_names: list[str],
+        names: list[str],
         output_func: Callable[[torch.Tensor], torch.Tensor],
         effect_capture_args: Dict[str, Any],
         head_dim: int = 0,
@@ -19,17 +21,21 @@ class AttributionEffectExtractor(FeatureExtractor):
         global_processing_fn: Callable[[dict[str, torch.Tensor]], dict[str, torch.Tensor]] | None = None,
         trusted_data: HuggingfaceDataset | None = None,
         model: nn.Module | None = None,
+        cache_path: str | None = None,
+        cache: FeatureCache | None = None,
     ):
 
         super().__init__(
-            feature_names=activation_names,
+            feature_names=names,
             individual_processing_fn=individual_processing_fn,
             global_processing_fn=global_processing_fn,
+            cache=cache
         )
-        self.activation_names = activation_names
+        self.activation_names = names
         self.output_func = output_func
-        self.head_dim = head_dim
+        self.head_dim = effect_capture_args['head_dim'] if 'head_dim' in effect_capture_args else None
         self.effect_capture_args = effect_capture_args
+        self.cache_path = cache_path
         
         if effect_capture_args['ablation'] in ['mean', 'pcs']:
             assert (trusted_data is not None) and (model is not None), "Trusted data and model must be provided for mean and PCS ablation"
@@ -42,50 +48,56 @@ class AttributionEffectExtractor(FeatureExtractor):
     def compute_features(self, inputs: Any) -> dict[str, torch.Tensor]:
         effects = get_effects(
             inputs,
-            self.model,
-            self.noise,
-            self.effect_capture_args,
+            model=self.model,
+            noise_acts=self.noise,
+            effect_capture_args=self.effect_capture_args,
             output_func=self.output_func,
             head_dim=self.head_dim
         )
-
         # Process effects if needed
         for name, effect in effects.items():
             if isinstance(effect, list):
                 effect = torch.cat(effect, dim=-1)
-            if effect.ndim > 2:  # For language models, take the last token
-                effects[name] = effect[:, :, -1].reshape(len(inputs), -1)
 
         return effects
     
 
     def get_noise_tensor(self, trusted_data, 
-                         subset_size=1000, activation_batch_size=8):
+                         max_steps=75, activation_batch_size=16):
         from cupbearer.detectors.statistical import MahalanobisDetector
 
         if self.effect_capture_args['ablation'] in ['mean', 'pcs']:
-            maha_detector = MahalanobisDetector(
-                activation_names=list(map(lambda x: x+ '.output', self.activation_names)),
+
+            if self.cache_path is not None:
+                cache = (FeatureCache.load(self.cache_path, 
+                                          device=guess_device_dtype_from_model(self.model)[0]) 
+                                          if Path(self.cache_path).exists()
+                                          else FeatureCache(device=guess_device_dtype_from_model(self.model)[0]))
+            else:
+                cache = None
+
+            extractor = ActivationExtractor(
+                names=list(map(lambda x: x+'.output', self.activation_names)),
                 individual_processing_fn=self.individual_processing_fn,
                 global_processing_fn=self.global_processing_fn,
-            )
-            maha_detector.set_model(self.model)
-            indices = torch.randperm(len(trusted_data))[:subset_size]
-            subset = HuggingfaceDataset(
-                trusted_data.hf_dataset.select(indices),
-                text_key=trusted_data.text_key,
-                label_key=trusted_data.label_key
+                cache=cache
             )
 
-            maha_detector.train(subset, None, batch_size=activation_batch_size)
+            maha_detector = MahalanobisDetector(
+                feature_extractor=extractor,
+            )
+            maha_detector.set_model(self.model)
+
+            maha_detector.train(trusted_data, None, batch_size=activation_batch_size, max_steps=max_steps)
+            cache.store(self.cache_path, overwrite=True)
             means = maha_detector.means
 
             if self.effect_capture_args['ablation'] == 'mean':
-                return {k.replace('.output', ''): v for k, v in means.items()}
+                return {k.replace('.output', ''): v for k, v in means['trusted'].items()}
 
             elif self.effect_capture_args['ablation'] == 'pcs':
-                covariances = maha_detector.covariances
-                means = maha_detector.means
+                covariances = maha_detector.covariances['trusted']
+                means = maha_detector.means['trusted']
                 pcs = {}
                 for k, C in covariances.items():
                     eigenvalues, eigenvectors = torch.linalg.eigh(C)

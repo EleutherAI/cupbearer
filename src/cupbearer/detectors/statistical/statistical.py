@@ -8,6 +8,8 @@ from tqdm import tqdm
 from cupbearer.detectors.activation_based import ActivationBasedDetector
 from cupbearer.detectors.statistical.helpers import update_covariance
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
 
 class StatisticalDetector(ActivationBasedDetector):
     use_trusted: bool = True
@@ -51,6 +53,7 @@ class StatisticalDetector(ActivationBasedDetector):
 
             for case, dataloader in all_dataloaders.items():
                 logger.debug(f"Collecting statistics on {case} data")
+
                 _, example_activations = next(iter(dataloader))
 
                 # v is an entire batch, v[0] are activations for a single input

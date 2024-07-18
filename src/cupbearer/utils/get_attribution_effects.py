@@ -1,7 +1,6 @@
 from typing import Callable, Dict, Tuple, Any, Union
 from einops import rearrange, repeat
 from collections import defaultdict
-
 import torch
 from torch import nn
 
@@ -27,9 +26,8 @@ def process_backward_transformer(noise: torch.Tensor, clean: torch.Tensor, grad_
     Replace clean activations with noise activations and reshape grad_output correctly for transformers
     """
     # Unsqueeze at sequence dimension
-    noise = noise.unsqueeze(1)
+    noise = noise
     direction = noise - clean
-
     if head_dim > 0:
         direction = rearrange(direction, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
         grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
@@ -43,7 +41,7 @@ def process_backward_project_transformer(noise: Tuple[torch.Tensor, torch.Tensor
     """
     noise_vecs = rearrange(noise[0], 'noise_batch d -> noise_batch 1 d')
     noise_vals = rearrange(noise[1], 'noise_batch -> noise_batch 1 1')
-    clean = rearrange(clean, 'batch seq d -> batch 1 seq d')
+    clean = rearrange(clean, 'batch seq d -> batch 1 seq d').type_as(noise_vecs)
     noise = (noise_vecs
             - rearrange(torch.linalg.vecdot(noise_vecs, clean), 'batch noise_batch seq -> batch noise_batch seq 1') * noise_vecs
             + (noise_vals * noise_vecs))
@@ -54,7 +52,8 @@ def process_backward_project_transformer(noise: Tuple[torch.Tensor, torch.Tensor
     if head_dim > 0:
         noise_batch_size = noise_vecs.shape[0]
         direction = rearrange(direction, 'batch noise_batch seq (nh hd) -> batch seq (noise_batch nh) hd', hd = head_dim)
-        grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq (noise_batch nh) hd', noise_batch = noise_batch_size)
+        grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
+        grad_output = repeat(grad_output, 'batch seq nh hd -> batch seq (noise_batch nh) hd', noise_batch = noise_batch_size)
         return direction, grad_output
     else:
         direction = rearrange(direction, 'batch noise_batch seq d -> batch seq noise_batch d')
@@ -81,10 +80,10 @@ def process_backward_project_conv(noise: Tuple[torch.Tensor, torch.Tensor], clea
     """
     Orthogonally project clean activations to noise activations and reshape grad_output correctly for conv nets
     """
-    clean = rearrange(clean, 'batch maps h w -> batch 1 maps (h w)')
-
     noise_vecs = rearrange(noise[0], 'noise_batch (h w) -> noise_batch 1 (h w)')
     noise_vals = rearrange(noise[1], 'noise_batch -> noise_batch 1 1')
+
+    clean = rearrange(clean, 'batch maps h w -> batch 1 maps (h w)').type_as(noise_vecs)
 
     noise = (noise_vecs
             - rearrange(torch.linalg.vecdot(noise_vecs, clean), 'batch noise_batch maps -> batch noise_batch maps 1') * noise_vecs
@@ -162,7 +161,6 @@ def get_effects(
             clean = mod_to_clean.pop(module)
 
             direction, grad_output = get_tensor_process_fn(effect_capture_args)(mod_to_noise[module], clean, grad_output, head_dim)
-
             effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
             name = mod_to_name[module]
             effects[name] = effect.clone().detach()
@@ -196,7 +194,6 @@ def get_effects(
         for handle in handles:
             handle.remove()
         model.zero_grad()
-
     return effects
 
 def get_edge_effects(

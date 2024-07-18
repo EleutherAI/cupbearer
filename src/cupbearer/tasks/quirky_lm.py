@@ -4,7 +4,7 @@ from transformers import AutoTokenizer
 
 from cupbearer.data import HuggingfaceDataset
 from cupbearer.models import HuggingfaceLM
-import pdb
+import torch
 from .task import Task
 
 
@@ -45,7 +45,7 @@ def quirky_lm(
     # We might not want to actually load a model if we're getting all activations
     # from a cache anyway.
     if not fake_model:
-        model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device)
+        model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
         model = model.merge_and_unload()
         tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
         tokenizer.pad_token_id = tokenizer.eos_token_id
