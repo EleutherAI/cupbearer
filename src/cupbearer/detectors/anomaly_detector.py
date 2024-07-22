@@ -279,11 +279,18 @@ class AnomalyDetector(ABC):
             # otherwise this tends to weirdly cut of the histogram.
             lower_lim = scores[layer].min().item()
 
-            bins = np.linspace(lower_lim, upper_lim, num_bins)
-
-            # Visualizations for anomaly scores
             for j, agree_label in enumerate(["Disagree", "Agree"]):
                 fig, ax = plt.subplots()
+                all_vals = []
+                for i, name in enumerate(["Normal", "Anomalous"]):
+                    class_labels = anomaly_labels[agreement == j]
+                    vals = scores[layer][agreement == j][class_labels == i]
+                    all_vals.extend(vals)
+                    
+                # Compute bins based on all data for this subplot
+                lower_lim, upper_lim = np.percentile(all_vals, [0, histogram_percentile])
+                bins = np.linspace(lower_lim, upper_lim, num_bins)
+                
                 for i, name in enumerate(["Normal", "Anomalous"]):
                     class_labels = anomaly_labels[agreement == j]
                     vals = scores[layer][agreement == j][class_labels == i]
