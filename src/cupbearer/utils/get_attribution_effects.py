@@ -3,6 +3,7 @@ from einops import rearrange, repeat
 from collections import defaultdict
 import torch
 from torch import nn
+import pdb
 
 class _Finished(Exception):
     pass
@@ -60,6 +61,15 @@ def process_backward_project_transformer(noise: Tuple[torch.Tensor, torch.Tensor
         grad_output = rearrange(grad_output, 'batch seq d -> batch seq 1 d')
         return direction, grad_output
 
+def process_backward_norm_transformer(noise: None, clean: torch.Tensor, grad_output: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Orthogonally project clean activations to noise activations and reshape grad_output correctly for conv nets
+    """
+    if head_dim > 0:
+        grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
+    direction = grad_output
+    return direction, grad_output
+
 def process_backward_zeros_conv(noise: None, clean: torch.Tensor, grad_output: torch.Tensor, *args) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Replace clean activations with zeros and reshape grad_output correctly for conv nets
@@ -107,6 +117,8 @@ def get_tensor_process_fn(
             return process_backward_transformer
         elif effect_capture_args['ablation'] == 'zeros':
             return process_backward_zeros_transformer
+        elif effect_capture_args['ablation'] == 'grad_norm':
+            return process_backward_norm_transformer
         else:
             raise ValueError(f"Invalid ablation {effect_capture_args['ablation']} for transformer")
     elif effect_capture_args['model_type'] == 'conv':
@@ -157,9 +169,7 @@ def get_effects(
     try:
         def bwd_hook(module: nn.Module, grad_input: tuple[torch.Tensor, ...] | torch.Tensor, grad_output: tuple[torch.Tensor, ...] | torch.Tensor):
             grad_output = grad_output[0] if isinstance(grad_output, tuple) else grad_output
-
             clean = mod_to_clean.pop(module)
-
             direction, grad_output = get_tensor_process_fn(effect_capture_args)(mod_to_noise[module], clean, grad_output, head_dim)
             effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
             name = mod_to_name[module]
@@ -184,7 +194,8 @@ def get_effects(
         with torch.enable_grad():
             try:
                 out = model(*args, **kwargs)
-                out = output_func(out)
+                out = output_func(out, *args, 'out')
+                pdb.set_trace()
                 assert out.ndim == 1, "output_func should reduce to a 1D tensor"
                 out.backward(torch.ones_like(out))
             except _Finished:
@@ -286,7 +297,7 @@ def get_edge_effects(
     try:
         with torch.enable_grad():
             out = model(*args, **kwargs)
-            out = output_func(out)
+            out = output_func(out, *args, 'out')
             assert out.ndim == 1, "output_func should reduce to a 1D tensor"
             out.backward(torch.ones_like(out))
     finally:

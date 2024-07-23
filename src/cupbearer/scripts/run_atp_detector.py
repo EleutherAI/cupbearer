@@ -55,20 +55,21 @@ def main(
     yes_token = task.model.tokenizer.encode(' Yes', add_special_tokens=False)[-1]
     effect_tokens = torch.tensor([no_token, yes_token], dtype=torch.long, device="cpu")
 
-    def effect_prob_func(out):
-        logits = out.logits
-        assert logits.ndim == 3
-        return logits[:, -1, effect_tokens].diff(1)[:,0]
-
     activation_processing_function = get_last_token_activation_function_for_task(task)
 
-    layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
+    def effect_prob_func(out, inputs, name):
+        logits = out.logits
+        assert logits.ndim == 3
+        return activation_processing_function(logits, inputs, name)[:, effect_tokens].diff(1)[:,0]
+
     cache_path = f"cache/{dataset}-{features}-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}"
     if features == "attribution":
         cache_path += f"-{ablation}"
     cache = FeatureCache.load(cache_path + ".pt", device=task.model.device) if Path(cache_path + ".pt").exists() else FeatureCache(device=task.model.device)
 
     if features == 'attribution':
+        layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
+
         effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
         if ablation == 'pcs':
             effect_capture_args['n_pcs'] = 10
@@ -103,8 +104,8 @@ def main(
         raise ValueError(f"Unknown score: {score}")
     detector.set_model(task.model)
 
-    batch_size = 1
-    eval_batch_size = 1
+    batch_size = 7
+    eval_batch_size = 7
 
     save_path = f"logs/quirky/{dataset}-{score}-{features}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
 
@@ -122,7 +123,8 @@ def main(
             eval_batch_size=eval_batch_size,
             pbar=True,
             train_from_test=False,
-            layerwise=layerwise
+            layerwise=layerwise,
+            shuffle=False
         )
     
     cache.store(cache_path)
@@ -135,7 +137,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', type=str, default='', help='Name of the model to use')
     parser.add_argument('--first_layer', type=int, required=True, help='First layer to use')
     parser.add_argument('--last_layer', type=int, required=True, help='Last layer to use')
-    parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw'], help='Ablation to use')
+    parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw', 'grad_norm'], help='Ablation to use')
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')

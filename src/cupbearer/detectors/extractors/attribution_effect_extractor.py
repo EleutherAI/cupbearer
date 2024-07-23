@@ -109,8 +109,8 @@ class AttributionEffectExtractor(FeatureExtractor):
 
                 return pcs
 
-        elif self.effect_capture_args['ablation'] == 'zero':
-            return None
+        elif self.effect_capture_args['ablation'] in ['zero', 'grad_norm']:
+            return {k: None for k in self.activation_names}
         
         else:
             raise ValueError(f"Unknown ablation method: {self.effect_capture_args['ablation']}")
