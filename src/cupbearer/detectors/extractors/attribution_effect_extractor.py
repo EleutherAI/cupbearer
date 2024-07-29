@@ -89,7 +89,8 @@ class AttributionEffectExtractor(FeatureExtractor):
             maha_detector.set_model(self.model)
 
             maha_detector.train(trusted_data, None, batch_size=activation_batch_size, max_steps=max_steps)
-            cache.store(self.cache_path, overwrite=True)
+            if cache is not None:
+                cache.store(self.cache_path, overwrite=True)
             means = maha_detector.means
 
             if self.effect_capture_args['ablation'] == 'mean':

@@ -26,3 +26,5 @@ notebooks/models/
 rename_results.sh
 notebooks/*.json
 *.json
+/visualizations/
+.test.txt.swp

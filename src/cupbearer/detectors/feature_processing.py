@@ -19,7 +19,7 @@ def get_last_token_activation_function_for_task(task: Task, randperm: bool = Fal
         tokens = task.model.tokenize(inputs, **task.model.tokenize_kwargs)
         last_non_padding_index = tokens["attention_mask"].sum(dim=1) - 1
 
-        acts = activation[range(batch_size), last_non_padding_index, :]
+        acts = activation[range(batch_size), last_non_padding_index.to(activation.device), :]
 
         if randperm:
             indices = torch.randperm(acts.size(-1))[:proj_dim]

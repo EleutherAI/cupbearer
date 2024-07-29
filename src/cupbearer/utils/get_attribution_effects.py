@@ -3,11 +3,11 @@ from einops import rearrange, repeat
 from collections import defaultdict
 import torch
 from torch import nn
+from contextlib import contextmanager
 import pdb
 
 class _Finished(Exception):
     pass
-
 
 def process_backward_zeros_transformer(noise: None, clean: torch.Tensor, grad_output: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -133,6 +133,49 @@ def get_tensor_process_fn(
     else:
         raise ValueError(f"Invalid model type {effect_capture_args['model_type']}")
 
+
+@contextmanager
+def prepare_model_for_effects(
+    model: nn.Module,
+    noise_acts: Dict[str, torch.Tensor] | Dict[str, Tuple[torch.Tensor, torch.Tensor]] | None,
+    effect_capture_args: Dict[str, Any],
+    head_dim: int = 0,
+):
+    effects = {}
+    handles = []
+    mod_to_clean = {}
+    mod_to_noise = {}
+    mod_to_name = {}
+    names = list(noise_acts.keys())
+
+    def bwd_hook(module: nn.Module, grad_input: tuple[torch.Tensor, ...] | torch.Tensor, grad_output: tuple[torch.Tensor, ...] | torch.Tensor):
+        grad_output = grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        clean = mod_to_clean[module]
+        direction, grad_output = get_tensor_process_fn(effect_capture_args)(mod_to_noise[module], clean, grad_output, head_dim)
+        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
+        name = mod_to_name[module]
+        effects[name] = effect.clone().detach()
+
+    def fwd_hook(module: nn.Module, input: tuple[torch.Tensor, ...] | torch.Tensor, output: tuple[torch.Tensor, ...] | torch.Tensor):
+        output = output[0] if isinstance(output, tuple) else output
+        mod_to_clean[module] = output.clone().detach()
+
+    for name, module in model.named_modules():
+        mod_to_name[module] = name
+        for path, noise in noise_acts.items():
+            if not name == path:
+                continue
+            handles.append(module.register_full_backward_hook(bwd_hook))
+            handles.append(module.register_forward_hook(fwd_hook))
+            mod_to_noise[module] = noise_acts[name]
+
+    try:
+        yield effects
+    finally:
+        for handle in handles:
+            handle.remove()
+        model.zero_grad()
+
 def get_effects(
     *args,
     model: nn.Module,
@@ -159,52 +202,12 @@ def get_effects(
     Returns:
         A dictionary mapping the names of the modules to the attribution effects.
     """
-    effects = {}
-    handles = []
-    mod_to_clean = {}
-    mod_to_noise = {}
-    mod_to_name = {}
-    names = list(noise_acts.keys())
-
-    try:
-        def bwd_hook(module: nn.Module, grad_input: tuple[torch.Tensor, ...] | torch.Tensor, grad_output: tuple[torch.Tensor, ...] | torch.Tensor):
-            grad_output = grad_output[0] if isinstance(grad_output, tuple) else grad_output
-            clean = mod_to_clean.pop(module)
-            direction, grad_output = get_tensor_process_fn(effect_capture_args)(mod_to_noise[module], clean, grad_output, head_dim)
-            effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
-            name = mod_to_name[module]
-            effects[name] = effect.clone().detach()
-
-            if set(names).issubset(effects.keys()):
-                raise _Finished()
-
-        def fwd_hook(module: nn.Module, input: tuple[torch.Tensor, ...] | torch.Tensor, output: tuple[torch.Tensor, ...] | torch.Tensor):
-            output = output[0] if isinstance(output, tuple) else output
-            mod_to_clean[module] = output.clone().detach()
-
-        for name, module in model.named_modules():
-            mod_to_name[module] = name
-            for path, noise in noise_acts.items():
-                if not name == path:
-                    continue
-                handles.append(module.register_full_backward_hook(bwd_hook))
-                handles.append(module.register_forward_hook(fwd_hook))
-                mod_to_noise[module] = noise_acts[name]
-
+    with prepare_model_for_effects(model, noise_acts, effect_capture_args, head_dim) as effects:
         with torch.enable_grad():
-            try:
                 out = model(*args, **kwargs)
                 out = output_func(out, *args, 'out')
-                pdb.set_trace()
                 assert out.ndim == 1, "output_func should reduce to a 1D tensor"
                 out.backward(torch.ones_like(out))
-            except _Finished:
-                pass
-
-    finally:
-        for handle in handles:
-            handle.remove()
-        model.zero_grad()
     return effects
 
 def get_edge_effects(
@@ -272,7 +275,7 @@ def get_edge_effects(
     def fwd_hook(module: nn.Module, input: tuple[torch.Tensor, ...] | torch.Tensor, output: tuple[torch.Tensor, ...] | torch.Tensor):
         output = output[0] if isinstance(output, tuple) else output
 
-        mod_to_clean[module] = output.detach()
+        mod_to_clean[module] = output.clone().detach()
 
     modules = list(model.named_modules())
 

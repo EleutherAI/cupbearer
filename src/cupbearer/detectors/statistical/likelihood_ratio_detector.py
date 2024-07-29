@@ -66,9 +66,9 @@ class LikelihoodRatioDetector(ActivationCovarianceBasedDetector):
     def post_covariance_training(self, **kwargs):
         pass
 
-    def train(self, trusted_data, untrusted_data, **kwargs):
+    def _train(self, trusted_data, untrusted_data, **kwargs):
 
-        super().train(trusted_data=trusted_data, untrusted_data=untrusted_data, **kwargs)
+        super()._train(trusted_data=trusted_data, untrusted_data=untrusted_data, **kwargs)
 
         means = {
             k: torch.mean(self._activations[k], dim=0) 

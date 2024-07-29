@@ -55,8 +55,6 @@ class Classifier(torch.nn.Module):
         self.linear.weight.data.zero_()
 
     def forward(self, x: Tensor) -> Tensor:
-        if self.eraser is not None:
-            x = self.eraser(x)
         return self.linear(x).squeeze(-1)
 
     @torch.enable_grad()

@@ -4,50 +4,55 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 
 class IsoForestDetector(StatisticalDetector):
+    use_trusted = True
+    use_untrusted = False
     n_estimators = 20
-    models = {}
 
-    def init_variables(self, activation_sizes: dict[str, torch.Tensor], device):
-        self.activations = {}
-        for k, size in activation_sizes.items():
-            self.activations = {
-                k: torch.empty((0, size[-1]), device = 'cpu')
-                for k, size in activation_sizes.items()
-            }
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.models = {}
+        self._activations = {}
 
-    def batch_update(self, activations: dict[str, torch.Tensor]):
+    def init_variables(self, activation_sizes: dict[str, torch.Size], device, case: str):
+        self._activations[case] = {
+            k: torch.empty((0, size[-1]), device='cpu')
+            for k, size in activation_sizes.items()
+        }
+
+    def batch_update(self, activations: dict[str, torch.Tensor], case: str):
         for k, activation in activations.items():
             activation = activation.view(-1, activation.shape[-1]).cpu()
-            if k in self.activations:
-                self.activations[k] = torch.cat([self.activations[k], activation], dim = 0)
+            self._activations[case][k] = torch.cat([self._activations[case][k], activation], dim=0)
 
-    def train(self, trusted_data, untrusted_data, **kwargs):
+    def _train(self, trusted_dataloader, untrusted_dataloader, **kwargs):
 
-        super().train(trusted_data = trusted_data, untrusted_data = untrusted_data, **kwargs)
+        super()._train(trusted_dataloader=trusted_dataloader, untrusted_dataloader=untrusted_dataloader, **kwargs)
 
-        for k, data in self.activations.items():
-            data_np = data.numpy()
-            model = IsolationForest(n_estimators = self.n_estimators)
-            model.fit(data_np)
-            self.models[k] = model
+        for case, data_dict in self._activations.items():
+            if case not in self.models:
+                self.models[case] = {}
+            for k, data in data_dict.items():
+                data_np = data.to(torch.float32).numpy()
+                model = IsolationForest(n_estimators=self.n_estimators)
+                model.fit(data_np)
+                self.models[case][k] = model
 
-    def layerwise_scores(self, batch):
-        activations = self.get_activations(batch)
-        batch_size = next(iter(activations.values())).shape[0]
+    def _compute_layerwise_scores(self, inputs, features):
+        batch_size = next(iter(features.values())).shape[0]
 
         distances = {}
-        for k, activation in activations.items():
+        for k, feature in features.items():
 
-            activation = activation.view(-1, activation.shape[-1])
+            feature = feature.view(-1, feature.shape[-1])
 
-            data_np = activation.cpu().numpy()
-            scores = self.models[k].decision_function(data_np)
+            data_np = feature.cpu().numpy()
+            scores = self.models['trusted'][k].decision_function(data_np)
             distances[k] = torch.tensor(-scores, dtype = torch.float32).view(batch_size, -1).mean(-1)
 
         return distances
 
     def _get_trained_variables(self, saving: bool = False):
-        return {"Models": self.models}
+        return {"models": self.models}
 
     def _set_trained_variables(self, variables):
-        self.models = variables["Models"]
+        self.models = variables["models"]

@@ -1,5 +1,5 @@
 from typing import Callable
-
+import pdb
 import torch
 from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -9,7 +9,7 @@ class _Finished(Exception):
 
 
 def get_activations(
-    *args, model: torch.nn.Module, names: list[str], **kwargs
+    *args, model: torch.nn.Module, names: list[str], enable_grad: bool = False, **kwargs
 ) -> dict[str, torch.Tensor]:
     """Get the activations of the model for the given inputs.
 
@@ -74,7 +74,11 @@ def get_activations(
                     module.register_forward_hook(make_hook(name + ".output", False))
                 )
         try:
+            if enable_grad:
+                with torch.enable_grad():
                     model(*args, **kwargs)
+            else:
+                model(*args, **kwargs)
         except _Finished:
             pass
     finally:
