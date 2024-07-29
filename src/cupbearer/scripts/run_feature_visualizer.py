@@ -4,28 +4,17 @@ import gc
 
 import torch
 
-from cupbearer import tasks, scripts
-from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector
-from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor
+from cupbearer import tasks
+from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor
 from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task
 from cupbearer.detectors.extractors.core import FeatureCache
-import gc
+from cupbearer.detectors.visualization import FeatureVisualizer
 
 datasets = [
-    # "capitals",
-    # "hemisphere",
-    # "population",
-    "sciq",
-    "sentiment",
-    "nli",
-    "authors",
-    "addition",
-    "subtraction",
-    "multiplication",
-    "modularaddition",
-    "squaring",
+    "capitals", "hemisphere", "population", "sciq", "sentiment", "nli",
+    "authors", "addition", "subtraction", "multiplication",
+    "modularaddition", "squaring",
 ]
-
 
 def main(
     dataset,
@@ -34,9 +23,7 @@ def main(
     model_name,
     ablation,
     features,
-    score,
     random_names=True,
-    layerwise=True,
 ):
     n_layers = 8
     interval = max(1, (last_layer - first_layer) // n_layers)
@@ -95,81 +82,27 @@ def main(
             individual_processing_fn=activation_processing_function,
             cache=cache
         )
-    elif features == 'probe':
-        layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
+        feature_extractor.set_model(task.model)
+
+    visualizer = FeatureVisualizer(feature_extractor)
+    
+    save_path = f"visualizations/quirky/{dataset}-{features}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
+    Path(save_path).mkdir(parents=True, exist_ok=True)
+
+    visualizer.train_and_visualize(task, data_types=['trusted', 'test'], use_densmap=False, save_dir=save_path, batch_size=4)
         
-        effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
-        if ablation == 'pcs':
-            effect_capture_args['n_pcs'] = 10
-
-        feature_extractor = ProbeEffectExtractor(
-            probe_layers=list(layer_dict.keys()),
-            intervention_layers=list(layer_dict.keys()),
-            output_func=effect_prob_func,
-            effect_capture_args=effect_capture_args,
-            individual_processing_fn=activation_processing_function,
-            trusted_data=task.trusted_data,
-            model=task.model,
-            cache=cache
-        )
-
-        emb = task.model.hf_model.get_input_embeddings()
-        emb.requires_grad_(True)
-
-    if score == 'mahalanobis':
-        detector = MahalanobisDetector(feature_extractor)
-    elif score == 'que':
-        detector = QuantumEntropyDetector(feature_extractor)
-    elif score == 'isoforest':
-        detector = IsoForestDetector(feature_extractor)
-    elif score == 'lof':
-        detector = LOFDetector(feature_extractor)
-    else:
-        raise ValueError(f"Unknown score: {score}")
-    detector.set_model(task.model)
-
-    batch_size = 7
-    eval_batch_size = 7
-    if dataset in ['sciq', 'sentiment']:
-        batch_size = 2
-        eval_batch_size = 2
-
-    save_path = f"logs/quirky/{dataset}-{score}-{features}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
-
-    if Path(save_path).exists():
-        detector.load_weights(Path(save_path) / "detector")
-        scripts.eval_detector(
-            task, detector, save_path, pbar=True, batch_size=eval_batch_size,
-            train_from_test=False, layerwise=layerwise
-        )
-    else:
-        scripts.train_detector(
-            task, detector,
-            batch_size=batch_size,
-            save_path=save_path,
-            eval_batch_size=eval_batch_size,
-            pbar=True,
-            train_from_test=False,
-            layerwise=layerwise,
-            shuffle=False
-        )
-    
-    cache.store(cache_path)
-    
-    del task, detector
+    del task, visualizer
     gc.collect()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Run Attribution Mahalanobis Detector")
+    parser = argparse.ArgumentParser(description="Visualize ATP Features")
     parser.add_argument('--model_name', type=str, default='', help='Name of the model to use')
     parser.add_argument('--first_layer', type=int, required=True, help='First layer to use')
     parser.add_argument('--last_layer', type=int, required=True, help='Last layer to use')
     parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw', 'grad_norm'], help='Ablation to use')
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use')
-    parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
-    parser.add_argument('--features', type=str, default='activations', choices=['activations', 'attribution', 'probe'], help='Features to use')
-    parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof'], help='Score to use')
+    parser.add_argument('--features', type=str, default='activations', help='Features to use')
 
     args = parser.parse_args()
 
@@ -182,9 +115,7 @@ if __name__ == '__main__':
                 args.model_name,
                 args.ablation,
                 args.features,
-                args.score,
                 random_names=not args.nonrandom_names,
-                layerwise=args.layerwise,
             )
     else:
         main(
@@ -194,7 +125,5 @@ if __name__ == '__main__':
             args.model_name,
             args.ablation,
             args.features,
-            args.score,
             random_names=not args.nonrandom_names,
-            layerwise=args.layerwise,
         )
