@@ -5,13 +5,14 @@ import gc
 import torch
 
 from cupbearer import tasks
-from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor
+from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor
 from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task
 from cupbearer.detectors.extractors.core import FeatureCache
 from cupbearer.detectors.visualization import FeatureVisualizer
 
 datasets = [
-    "capitals", "hemisphere", "population", "sciq", "sentiment", "nli",
+    "capitals", "hemisphere", "population", 
+    "sciq", "sentiment", "nli",
     "authors", "addition", "subtraction", "multiplication",
     "modularaddition", "squaring",
 ]
@@ -83,13 +84,35 @@ def main(
             cache=cache
         )
         feature_extractor.set_model(task.model)
+    elif features == 'probe':
+        layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
+        
+        effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
+        if ablation == 'pcs':
+            effect_capture_args['n_pcs'] = 10
+
+        feature_extractor = ProbeEffectExtractor(
+            probe_layers=list(layer_dict.keys()),
+            intervention_layers=list(layer_dict.keys()),
+            output_func=effect_prob_func,
+            effect_capture_args=effect_capture_args,
+            individual_processing_fn=activation_processing_function,
+            trusted_data=task.trusted_data,
+            model=task.model,
+            cache=cache
+        )
+
+        emb = task.model.hf_model.get_input_embeddings()
+        emb.requires_grad_(True)
 
     visualizer = FeatureVisualizer(feature_extractor)
     
     save_path = f"visualizations/quirky/{dataset}-{features}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
     Path(save_path).mkdir(parents=True, exist_ok=True)
 
-    visualizer.train_and_visualize(task, data_types=['trusted', 'test'], use_densmap=False, save_dir=save_path, batch_size=4)
+    batch_size = 2 if dataset in ['sciq', 'sentiment'] else 4
+
+    visualizer.train_and_visualize(task, data_types=['trusted', 'test'], use_densmap=False, save_dir=save_path, batch_size=batch_size)
         
     del task, visualizer
     gc.collect()

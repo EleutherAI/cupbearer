@@ -6,15 +6,15 @@ import torch
 
 from cupbearer import tasks, scripts
 from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector
-from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor
+from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor
 from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task
 from cupbearer.detectors.extractors.core import FeatureCache
 import gc
 
 datasets = [
-    # "capitals",
-    # "hemisphere",
-    # "population",
+    "capitals",
+    "hemisphere",
+    "population",
     "sciq",
     "sentiment",
     "nli",
@@ -67,54 +67,74 @@ def main(
         cache_path += f"-{ablation}"
     cache = FeatureCache.load(cache_path + ".pt", device=task.model.device) if Path(cache_path + ".pt").exists() else FeatureCache(device=task.model.device)
 
-    if features == 'attribution':
-        layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
+    cache = None
 
-        effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
-        if ablation == 'pcs':
-            effect_capture_args['n_pcs'] = 10
-    
-        feature_extractor = AttributionEffectExtractor(
-            names=list(layer_dict.keys()),
-            output_func=effect_prob_func,
-            effect_capture_args=effect_capture_args,
-            individual_processing_fn=activation_processing_function,
-            trusted_data=task.trusted_data,
-            model=task.model,
-            cache_path=f"cache/{dataset}-activations-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}.pt",
-            cache=cache
-        )
+    extractors = []
+    feature_groups = {f"layer_{layer}": [] for layer in layers}
+    for feature in features:
+        if feature == 'attribution':
+            layer_dict = {}
+            for layer in layers:
+                key = f"hf_model.model.layers.{layer}.self_attn"
+                layer_dict[key] = (4096,)
+                feature_groups[f"layer_{layer}"].append(key)
 
-        emb = task.model.hf_model.get_input_embeddings()
-        emb.requires_grad_(True)
-    elif features == 'activations':
-        layer_dict = {f"hf_model.model.layers.{layer}.input_layernorm.input": (4096,) for layer in layers}
-
-        feature_extractor = ActivationExtractor(
-            names=list(layer_dict.keys()),
-            individual_processing_fn=activation_processing_function,
-            cache=cache
-        )
-    elif features == 'probe':
-        layer_dict = {f"hf_model.model.layers.{layer}.self_attn": (4096,) for layer in layers}
+            effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
+            if ablation == 'pcs':
+                effect_capture_args['n_pcs'] = 10
         
-        effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
-        if ablation == 'pcs':
-            effect_capture_args['n_pcs'] = 10
+            extractors.append(AttributionEffectExtractor(
+                names=list(layer_dict.keys()),
+                output_func=effect_prob_func,
+                effect_capture_args=effect_capture_args,
+                individual_processing_fn=activation_processing_function,
+                trusted_data=task.trusted_data,
+                model=task.model,
+                cache_path=f"cache/{dataset}-activations-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}.pt",
+                cache=cache
+            ))
 
-        feature_extractor = ProbeEffectExtractor(
-            probe_layers=list(layer_dict.keys()),
-            intervention_layers=list(layer_dict.keys()),
-            output_func=effect_prob_func,
-            effect_capture_args=effect_capture_args,
-            individual_processing_fn=activation_processing_function,
-            trusted_data=task.trusted_data,
-            model=task.model,
-            cache=cache
-        )
+            emb = task.model.hf_model.get_input_embeddings()
+            emb.requires_grad_(True)
 
-        emb = task.model.hf_model.get_input_embeddings()
-        emb.requires_grad_(True)
+        elif feature == 'activations':
+            layer_dict = {}
+            for layer in layers:
+                key = f"hf_model.model.layers.{layer}.input_layernorm.input"
+                layer_dict[key] = (4096,)
+                feature_groups[f"layer_{layer}"].append(key)
+
+            extractors.append(ActivationExtractor(
+                names=list(layer_dict.keys()),
+                individual_processing_fn=activation_processing_function,
+                cache=cache
+            ))
+        elif feature == 'probe':
+            layer_dict = {}
+            for layer in layers:
+                key = f"hf_model.model.layers.{layer}.self_attn"
+                layer_dict[key] = (4096,)
+                feature_groups[f"layer_{layer}"].append(key)
+            
+            effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
+            if ablation == 'pcs':
+                effect_capture_args['n_pcs'] = 10
+
+            extractors.append(ProbeEffectExtractor(
+                probe_layers=list(layer_dict.keys()),
+                intervention_layers=list(layer_dict.keys()),
+                output_func=effect_prob_func,
+                effect_capture_args=effect_capture_args,
+                individual_processing_fn=activation_processing_function,
+                trusted_data=task.trusted_data,
+                model=task.model,
+                cache=cache
+            ))
+
+            emb = task.model.hf_model.get_input_embeddings()
+            emb.requires_grad_(True)
+
+    feature_extractor = MultiExtractor(extractors, feature_groups = feature_groups) if len(extractors) > 1 else extractors[0]
 
     if score == 'mahalanobis':
         detector = MahalanobisDetector(feature_extractor)
@@ -134,7 +154,7 @@ def main(
         batch_size = 2
         eval_batch_size = 2
 
-    save_path = f"logs/quirky/{dataset}-{score}-{features}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
+    save_path = f"logs/quirky/{dataset}-{score}-{'_'.join(features)}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
 
     if Path(save_path).exists():
         detector.load_weights(Path(save_path) / "detector")
@@ -168,7 +188,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
-    parser.add_argument('--features', type=str, default='activations', choices=['activations', 'attribution', 'probe'], help='Features to use')
+    parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe'], help='Features to use')
     parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof'], help='Score to use')
 
     args = parser.parse_args()
