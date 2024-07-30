@@ -67,8 +67,6 @@ def main(
         cache_path += f"-{ablation}"
     cache = FeatureCache.load(cache_path + ".pt", device=task.model.device) if Path(cache_path + ".pt").exists() else FeatureCache(device=task.model.device)
 
-    cache = None
-
     extractors = []
     feature_groups = {f"layer_{layer}": [] for layer in layers}
     for feature in features:
@@ -98,22 +96,22 @@ def main(
             emb.requires_grad_(True)
 
         elif feature == 'activations':
-            layer_dict = {}
+            layer_list = []
             for layer in layers:
                 key = f"hf_model.model.layers.{layer}.input_layernorm.input"
-                layer_dict[key] = (4096,)
+                layer_list.append(key)
                 feature_groups[f"layer_{layer}"].append(key)
 
             extractors.append(ActivationExtractor(
-                names=list(layer_dict.keys()),
+                names=layer_list,
                 individual_processing_fn=activation_processing_function,
                 cache=cache
             ))
         elif feature == 'probe':
-            layer_dict = {}
+            layer_list = []
             for layer in layers:
                 key = f"hf_model.model.layers.{layer}.self_attn"
-                layer_dict[key] = (4096,)
+                layer_list.append(key)
                 feature_groups[f"layer_{layer}"].append(key)
             
             effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
@@ -121,8 +119,8 @@ def main(
                 effect_capture_args['n_pcs'] = 10
 
             extractors.append(ProbeEffectExtractor(
-                probe_layers=list(layer_dict.keys()),
-                intervention_layers=list(layer_dict.keys()),
+                probe_layers=layer_list,
+                intervention_layers=layer_list,
                 output_func=effect_prob_func,
                 effect_capture_args=effect_capture_args,
                 individual_processing_fn=activation_processing_function,

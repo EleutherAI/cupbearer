@@ -8,9 +8,6 @@ from tqdm import tqdm
 from cupbearer.detectors.activation_based import ActivationBasedDetector
 from cupbearer.detectors.statistical.helpers import update_covariance
 
-from torch.profiler import profile, record_function, ProfilerActivity
-
-
 class StatisticalDetector(ActivationBasedDetector):
     use_trusted: bool = True
     use_untrusted: bool = False
