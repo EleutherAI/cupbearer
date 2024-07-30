@@ -39,7 +39,6 @@ class MultiExtractor(FeatureExtractor):
                 for group_name in self.feature_groups.keys():
                     if name in self.feature_groups[group_name]:
                         grouped_features[group_name].append(feature)
-        pdb.set_trace()
         grouped_features = {group_name: torch.cat(feature_list, dim=-1) for group_name, feature_list in grouped_features.items()}
                 
         return grouped_features

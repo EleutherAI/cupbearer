@@ -50,10 +50,12 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
             self.trusted_whitening_matrices[name],
         )
         # TODO should possibly pass rank
+        untrusted_covariances = self.trusted_whitening_matrices[name].T @ self.covariances["untrusted"][name] @ self.trusted_whitening_matrices[name]
+        untrusted_covariance_norm = torch.linalg.eigvalsh(untrusted_covariances).max()
         return quantum_entropy(
             whitened_activations,
-            self.covariances["untrusted"][name],
-            self.untrusted_covariance_norms[name],
+            untrusted_covariances,
+            untrusted_covariance_norm,
         )
 
     def _get_trained_variables(self):

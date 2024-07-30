@@ -1,5 +1,6 @@
 from typing import Optional
 import torch
+import pdb
 
 
 def concat_to_single_layer(activations: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -100,12 +101,13 @@ def quantum_entropy(
     # Compute QUE-score
     exp_factor = torch.matrix_exp(alpha * untrusted_covariance / covariance_norm)
 
-    return torch.einsum(
+    res = torch.einsum(
         "bi,ij,jb->b",
         whitened_activations,
         exp_factor,
         whitened_activations.mT,
     )
+    return res
 
 
 def local_outlier_factor(
