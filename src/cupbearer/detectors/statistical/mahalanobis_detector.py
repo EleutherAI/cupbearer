@@ -19,7 +19,7 @@ def _pinv(C, rcond, dtype=torch.float64):
 
 class MahalanobisDetector(ActivationCovarianceBasedDetector):
     def post_covariance_training(
-        self, rcond: float = 1e-5, relative: bool = False, **kwargs
+        self, rcond: float = 1e-3, relative: bool = False, **kwargs
     ):
         self.inv_covariances = {
             k: _pinv(C, rcond) for k, C in self.covariances["trusted"].items()

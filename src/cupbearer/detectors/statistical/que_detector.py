@@ -1,7 +1,5 @@
 import torch
-from einops import rearrange
-from torch.utils.data import DataLoader
-from tqdm import tqdm
+import pdb
 
 from cupbearer.detectors.statistical.helpers import quantum_entropy
 from cupbearer.detectors.statistical.statistical import (
@@ -20,7 +18,7 @@ class QuantumEntropyDetector(ActivationCovarianceBasedDetector):
 
     use_untrusted: bool = True
 
-    def post_covariance_training(self, rcond: float = 1e-5, **kwargs):
+    def post_covariance_training(self, rcond: float = 1e-3, **kwargs):
         whitening_matrices = {}
         for k, cov in self.covariances["trusted"].items():
             # Compute decomposition
