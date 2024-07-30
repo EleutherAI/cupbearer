@@ -68,9 +68,8 @@ def main(
 
     def effect_prob_func(logits):
         assert logits.ndim == 3
-        probs = logits.softmax(-1)
 
-        return probs[:, -1, effect_tokens].diff(1).sum()
+        return logits[:, -1, effect_tokens].diff(1).sum()
 
     activation_processing_function = get_last_token_activation_function_for_task(task)
 
