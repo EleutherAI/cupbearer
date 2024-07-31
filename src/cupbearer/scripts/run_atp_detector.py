@@ -153,6 +153,8 @@ def main(
         eval_batch_size = 2
 
     save_path = f"logs/quirky/{dataset}-{score}-{'_'.join(features)}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
+    if not layerwise:
+        save_path += "/all"
 
     if Path(save_path).exists():
         detector.load_weights(Path(save_path) / "detector")
