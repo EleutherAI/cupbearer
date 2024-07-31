@@ -38,7 +38,8 @@ def main(
         random_names=True, 
         layerwise=True, 
         alpha=8,
-        impact_threshold=1.e-4):
+        impact_threshold=1.e-4,
+        append_activations=False):
     
     n_layers = 8
     # if dataset == 'sciq':
@@ -109,7 +110,7 @@ def main(
                 effect_capture_args=effect_capture_args,
                 activation_processing_func=activation_processing_function,
                 cache=activation_cache,
-                append_activations=False
+                append_activations=append_activations
                 )
         elif detector_type == "isoforest":
             detector = atp_detector.IsoForestAttributionDetector(
@@ -137,7 +138,8 @@ def main(
                 effect_capture_method=effect_capture_method,
                 effect_capture_args=effect_capture_args,
                 activation_processing_func=activation_processing_function,
-                cache=activation_cache
+                cache=activation_cache,
+                append_activations=append_activations
             )
         elif detector_type == 'impactful_deviation':
             detector = ImpactfulDeviationDetector(
@@ -286,6 +288,9 @@ def main(
 
         detector = detectors.IterativeAnomalyDetector()
 
+    if features == "attribution" and append_activations:
+        features = "attribution_activations"
+
     save_path = f"logs/quirky/{dataset}-{detector_type}-{features}-{model_name}-{first_layer}-{last_layer}-{args.ablation}"
 
     if detector_type == "lof":
@@ -328,6 +333,7 @@ if __name__ == '__main__':
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
     parser.add_argument('--impact_threshold', type=float, default=1e-4, help='Impact threshold for ImpactfulDeviationDetector')
+    parser.add_argument('--append_activations', action='store_true', default=False, help='Append activations to the cache')
 
     args = parser.parse_args()
 
@@ -344,7 +350,8 @@ if __name__ == '__main__':
             alpha=alpha, 
             layerwise=args.layerwise, 
             random_names=not args.nonrandom_names,
-            impact_threshold=args.impact_threshold
+            impact_threshold=args.impact_threshold,
+            append_activations=args.append_activations
         )
 
     if args.sweep_alpha:

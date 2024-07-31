@@ -335,8 +335,8 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             if isinstance(self.model, HuggingfaceLM):
                 effect = effect[:, :, -1].reshape(1, -1)
             if self.append_activations:
-                sample_effects[name.replace('.output', '')] = torch.cat([
-                    sample_effects[name.replace('.output', '')], act.unsqueeze(1)], dim=-1)
+                effect = torch.cat([
+                    effect, acts[name + '.output']], dim=-1)
             if isinstance(self.model, HuggingfaceLM):
                 self._effects[name] = torch.zeros(
                     len(trusted_data),
@@ -379,7 +379,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
                 acts = self.get_activations(batch)          
                 for name, act in acts.items():
                     effects[name.replace('.output', '')] = torch.cat([
-                        effects[name.replace('.output', '')][:, :, -1], act.unsqueeze(1)], dim=-1
+                        effects[name.replace('.output', '')][:, :, -1].reshape(1, -1), act], dim=-1
                     )
 
             for name, effect in effects.items():
@@ -704,10 +704,15 @@ class QueAttributionDetector(AttributionDetector):
             
             self._n += batch_size
 
+            acts = self.get_activations(batch)
+
             for name, effect in untrusted_effects.items():
                 # Get the effect at the last token
                 if isinstance(self.model, HuggingfaceLM):
-                    effect = effect[:, :, -1].reshape(batch_size, -1)
+                    if self.append_activations:
+                        effect = torch.cat([effect[:, :, -1].reshape(1, -1), acts[name + '.output']], dim=-1)
+                    else:
+                        effect = effect[:, :, -1].reshape(batch_size, -1)
                 # Merge the last dimensions
                 self._untrusted_effect_means[name], self.untrusted_covariances[name], _ = detectors.statistical.helpers.update_covariance(
                     self._untrusted_effect_means[name], self.untrusted_covariances[name], self._n, effect
