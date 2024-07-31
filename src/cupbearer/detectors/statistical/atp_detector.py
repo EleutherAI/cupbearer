@@ -154,9 +154,11 @@ def atp(model: nn.Module, noise_acts: Dict[str, Tensor] | Dict[str, Tuple[Tensor
         if clean.ndim == 4:
             seq = False
             clean = clean.view(-1, 1, clean.shape[-1])
-
+        
+        if mod_to_noise[module] is None:
+            noise = grad_output.unsqueeze(1) + clean.unsqueeze(1)
         # If noise is tensor, replace acts with noise
-        if isinstance(mod_to_noise[module], Tensor):
+        elif isinstance(mod_to_noise[module], Tensor):
             # Unsqueeze noise at the sequence dimension
             noise = mod_to_noise[module].unsqueeze(1)
         # If noise is tuple, orthogonally project acts to noise
@@ -400,7 +402,10 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
 
     def get_noise_tensor(self, trusted_data, batch_size, device, dtype, 
                          subset_size=1000, activation_batch_size=8):
-        if self.effect_capture_args['ablation'] == 'mean':
+        if self.effect_capture_args['ablation'] == 'grad_norm':
+            return {k: None for k in self.shapes.keys()}
+        
+        elif self.effect_capture_args['ablation'] == 'mean':
             indices = torch.randperm(len(trusted_data))[:subset_size]
             subset = HuggingfaceDataset(
                 trusted_data.hf_dataset.select(indices),
@@ -450,7 +455,7 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             acts = self.get_activations(batch)          
             for name, act in acts.items():
                 effects[name.replace('.output', '')] = torch.cat([
-                    effects[name.replace('.output', '')][:, :, -1], act.unsqueeze(1)], dim=-1
+                    effects[name.replace('.output', '')][:, :, -1].reshape(1, -1), act], dim=-1
                 )
 
         seq = False
@@ -458,7 +463,8 @@ class AttributionDetector(ActivationCovarianceBasedDetector, ABC):
             if isinstance(effect, list):
                 effect = torch.cat(effect, dim=-1)
             if isinstance(self.model, HuggingfaceLM):
-                effects[name] = effect[:, :, -1].reshape(batch_size, -1)
+                if not self.append_activations:
+                    effects[name] = effect[:, :, -1].reshape(batch_size, -1)
                 seq = True
 
         if seq:
@@ -704,7 +710,8 @@ class QueAttributionDetector(AttributionDetector):
             
             self._n += batch_size
 
-            acts = self.get_activations(batch)
+            if self.append_activations:
+                acts = self.get_activations(batch)
 
             for name, effect in untrusted_effects.items():
                 # Get the effect at the last token

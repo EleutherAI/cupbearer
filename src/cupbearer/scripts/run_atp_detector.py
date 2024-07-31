@@ -101,6 +101,9 @@ def main(
         elif ablation == 'edge_mean':
             effect_capture_method = 'edge_intervention'
             effect_capture_args['ablation'] = 'mean'
+        elif ablation == 'grad_norm':
+            effect_capture_method = 'atp'
+            effect_capture_args['ablation'] = 'grad_norm'
 
         if detector_type == "mahalanobis":
             detector = atp_detector.MahaAttributionDetector(
@@ -324,7 +327,7 @@ if __name__ == '__main__':
     parser.add_argument('--first_layer', type=int, required=True, help='First layer to use')
     parser.add_argument('--last_layer', type=int, required=True, help='Last layer to use')
     parser.add_argument('--features', type=str, required=True, help='Features to use (attribution, trajectories, probe or activations)')
-    parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw', 'edge_mean'], help='Ablation to use (mean, zero, pcs, edge_mean or raw)')
+    parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw', 'edge_mean', 'grad_norm'], help='Ablation to use (mean, zero, pcs, edge_mean or raw)')
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use (sciq, addition)')
     parser.add_argument('--k', type=int, default=20, help='k to use for LOF')
     parser.add_argument('--sweep_layers', action='store_true', default=False, help='Sweep layers one by one')
