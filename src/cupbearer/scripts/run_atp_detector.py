@@ -69,12 +69,12 @@ def main(
 
     extractors = []
     feature_groups = {f"layer_{layer}": [] for layer in layers}
+    layer_list = [f"hf_model.model.layers.{layer}.self_attn" for layer in layers]
+
     for feature in features:
         if feature == 'attribution':
-            layer_dict = {}
-            for layer in layers:
-                key = f"hf_model.model.layers.{layer}.self_attn"
-                layer_dict[key] = (4096,)
+            layer_dict = {key: (4096,) for key in layer_list}
+            for layer, key in zip(layers, layer_dict.keys()):
                 feature_groups[f"layer_{layer}"].append(key)
 
             effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
@@ -96,22 +96,22 @@ def main(
             emb.requires_grad_(True)
 
         elif feature == 'activations':
-            layer_list = []
-            for layer in layers:
-                key = f"hf_model.model.layers.{layer}.input_layernorm.input"
-                layer_list.append(key)
+            if len(features) == 1:
+                # Use input_layernorm layers if only activations are selected
+                acts_layer_list = [f"hf_model.model.layers.{layer}.input_layernorm.input" for layer in layers]
+            else:
+                acts_layer_list = [l + '.output' for l in layer_list]
+            
+            for layer, key in zip(layers, acts_layer_list):
                 feature_groups[f"layer_{layer}"].append(key)
 
             extractors.append(ActivationExtractor(
-                names=layer_list,
+                names=acts_layer_list,
                 individual_processing_fn=activation_processing_function,
                 cache=cache
             ))
         elif feature == 'probe':
-            layer_list = []
-            for layer in layers:
-                key = f"hf_model.model.layers.{layer}.self_attn"
-                layer_list.append(key)
+            for layer, key in zip(layers, layer_list):
                 feature_groups[f"layer_{layer}"].append(key)
             
             effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
@@ -180,8 +180,8 @@ def main(
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run Attribution Mahalanobis Detector")
     parser.add_argument('--model_name', type=str, default='', help='Name of the model to use')
-    parser.add_argument('--first_layer', type=int, required=True, help='First layer to use')
-    parser.add_argument('--last_layer', type=int, required=True, help='Last layer to use')
+    parser.add_argument('--first_layer', type=int, default=1, help='First layer to use')
+    parser.add_argument('--last_layer', type=int, default=31, help='Last layer to use')
     parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw', 'grad_norm'], help='Ablation to use')
     parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
