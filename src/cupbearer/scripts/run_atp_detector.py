@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 import gc
-
+import os
 import torch
 
 from cupbearer import tasks, scripts
@@ -157,7 +157,10 @@ def main(
         save_path += "/all"
 
     if Path(save_path).exists():
-        detector.load_weights(Path(save_path) / "detector")
+        if 'detector.pt' in os.listdir(save_path):
+            detector.load_weights(Path(save_path) / "detector")
+        else:
+            detector.load_weights(Path(save_path) /'all'/ "detector.pt")
         scripts.eval_detector(
             task, detector, save_path, pbar=True, batch_size=eval_batch_size,
             train_from_test=False, layerwise=layerwise
