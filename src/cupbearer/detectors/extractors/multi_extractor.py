@@ -34,7 +34,7 @@ class MultiExtractor(FeatureExtractor):
     def compute_features(self, inputs: Any) -> dict[str, torch.Tensor]:
         grouped_features = defaultdict(list)
         for extractor in self.extractors:
-            features = extractor.compute_features(inputs)
+            features = extractor(inputs)
             for name, feature in features.items():
                 for group_name in self.feature_groups.keys():
                     if name in self.feature_groups[group_name]:

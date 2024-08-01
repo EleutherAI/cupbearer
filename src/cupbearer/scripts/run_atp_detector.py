@@ -74,14 +74,16 @@ def main(
     cache = FeatureCache.load(cache_path + ".pt", device=task.model.device) if Path(cache_path + ".pt").exists() else FeatureCache(device=task.model.device)
 
     extractors = []
-    feature_groups = {f"layer_{layer}": [] for layer in layers}
+    # feature_groups = {f"layer_{layer}": [] for layer in layers}
     layer_list = [f"hf_model.model.layers.{layer}.self_attn" for layer in layers]
+    feature_groups = {k: [] for k in layer_list}
 
     for feature in features:
         if feature == 'attribution':
             layer_dict = {key: (4096,) for key in layer_list}
             for layer, key in zip(layers, layer_dict.keys()):
-                feature_groups[f"layer_{layer}"].append(key)
+                # feature_groups[f"layer_{layer}"].append(key)
+                feature_groups[key].append(key)
 
             effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
             if ablation == 'pcs':
@@ -110,7 +112,11 @@ def main(
                 acts_layer_list = [l + '.output' for l in layer_list]
             
             for layer, key in zip(layers, acts_layer_list):
-                feature_groups[f"layer_{layer}"].append(key)
+                # feature_groups[f"layer_{layer}"].append(key)
+                if key not in feature_groups:
+                    feature_groups[key] = [key]
+                else:
+                    feature_groups[key].append(key)
 
             extractors.append(ActivationExtractor(
                 names=acts_layer_list,
@@ -120,7 +126,11 @@ def main(
             ))
         elif feature == 'probe':
             for layer, key in zip(layers, layer_list):
-                feature_groups[f"layer_{layer}"].append(key)
+                # feature_groups[f"layer_{layer}"].append(key)
+                if key not in feature_groups:
+                    feature_groups[key] = [key]
+                else:
+                    feature_groups[key].append(key)
             
             effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
             if ablation == 'pcs':
