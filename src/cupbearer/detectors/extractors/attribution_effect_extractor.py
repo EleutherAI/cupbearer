@@ -79,7 +79,6 @@ class AttributionEffectExtractor(FeatureExtractor):
             extractor = ActivationExtractor(
                 names=list(map(lambda x: x+'.output', self.activation_names)),
                 individual_processing_fn=self.individual_processing_fn,
-                global_processing_fn=self.global_processing_fn,
                 cache=cache
             )
 

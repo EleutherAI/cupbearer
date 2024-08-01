@@ -7,7 +7,7 @@ import torch
 from cupbearer import tasks, scripts
 from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector
 from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor
-from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task
+from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task, concat_to_single_layer
 from cupbearer.detectors.extractors.core import FeatureCache
 import gc
 
@@ -37,6 +37,7 @@ def main(
     score,
     random_names=True,
     layerwise=True,
+    concat=False
 ):
     n_layers = 8
     interval = max(1, (last_layer - first_layer) // n_layers)
@@ -56,6 +57,11 @@ def main(
     effect_tokens = torch.tensor([no_token, yes_token], dtype=torch.long, device="cpu")
 
     activation_processing_function = get_last_token_activation_function_for_task(task)
+
+    if concat:
+        global_processing_function = concat_to_single_layer
+    else:
+        global_processing_function = None
 
     def effect_prob_func(out, inputs, name):
         logits = out.logits
@@ -80,7 +86,7 @@ def main(
             effect_capture_args = {'ablation': ablation, 'model_type': 'transformer', 'head_dim': 128}
             if ablation == 'pcs':
                 effect_capture_args['n_pcs'] = 10
-        
+
             extractors.append(AttributionEffectExtractor(
                 names=list(layer_dict.keys()),
                 output_func=effect_prob_func,
@@ -89,7 +95,8 @@ def main(
                 trusted_data=task.trusted_data,
                 model=task.model,
                 cache_path=f"cache/{dataset}-activations-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}.pt",
-                cache=cache
+                cache=cache,
+                global_processing_fn=global_processing_function
             ))
 
             emb = task.model.hf_model.get_input_embeddings()
@@ -108,7 +115,8 @@ def main(
             extractors.append(ActivationExtractor(
                 names=acts_layer_list,
                 individual_processing_fn=activation_processing_function,
-                cache=cache
+                cache=cache,
+                global_processing_fn=global_processing_function
             ))
         elif feature == 'probe':
             for layer, key in zip(layers, layer_list):
@@ -126,11 +134,17 @@ def main(
                 individual_processing_fn=activation_processing_function,
                 trusted_data=task.trusted_data,
                 model=task.model,
-                cache=cache
+                cache=cache,
+                global_processing_fn=global_processing_function
             ))
 
             emb = task.model.hf_model.get_input_embeddings()
             emb.requires_grad_(True)
+
+    if concat:
+        for ex in extractors:
+            ex.feature_names = ['all']
+
 
     feature_extractor = MultiExtractor(extractors, feature_groups = feature_groups) if len(extractors) > 1 else extractors[0]
 
@@ -153,6 +167,10 @@ def main(
         eval_batch_size = 2
 
     save_path = f"logs/quirky/{dataset}-{score}-{'_'.join(features)}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
+
+    if concat:
+        save_path += "-concat"
+
     if not layerwise:
         save_path += "/all"
 
@@ -193,6 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
     parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe'], help='Features to use')
     parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof'], help='Score to use')
+    parser.add_argument('--concat', action='store_true', default=False, help='Concatenate features across layers')
 
     args = parser.parse_args()
 
@@ -208,6 +227,7 @@ if __name__ == '__main__':
                 args.score,
                 random_names=not args.nonrandom_names,
                 layerwise=args.layerwise,
+                concat=args.concat
             )
     else:
         main(
@@ -220,4 +240,5 @@ if __name__ == '__main__':
             args.score,
             random_names=not args.nonrandom_names,
             layerwise=args.layerwise,
+            concat=args.concat
         )

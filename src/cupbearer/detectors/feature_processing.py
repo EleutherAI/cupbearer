@@ -28,3 +28,7 @@ def get_last_token_activation_function_for_task(task: Task, randperm: bool = Fal
         return acts
     
     return get_activation_at_last_token
+
+
+def concat_to_single_layer(activations: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    return {'all': torch.cat([v for k, v in activations.items()], dim=1)}
