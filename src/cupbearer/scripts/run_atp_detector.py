@@ -5,7 +5,7 @@ import os
 import torch
 
 from cupbearer import tasks, scripts
-from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector
+from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector, UMAPMahalanobisDetector, UMAPLOFDetector
 from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor
 from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task, concat_to_single_layer
 from cupbearer.detectors.extractors.core import FeatureCache
@@ -159,13 +159,19 @@ def main(
     feature_extractor = MultiExtractor(extractors, feature_groups = feature_groups) if len(extractors) > 1 else extractors[0]
 
     if score == 'mahalanobis':
-        detector = MahalanobisDetector(feature_extractor)
+        if args.umap:
+            detector = UMAPMahalanobisDetector(feature_extractor)
+        else:
+            detector = MahalanobisDetector(feature_extractor)
     elif score == 'que':
         detector = QuantumEntropyDetector(feature_extractor)
     elif score == 'isoforest':
         detector = IsoForestDetector(feature_extractor)
     elif score == 'lof':
-        detector = LOFDetector(feature_extractor)
+        if args.umap:
+            detector = UMAPLOFDetector(feature_extractor)
+        else:
+            detector = LOFDetector(feature_extractor)
     else:
         raise ValueError(f"Unknown score: {score}")
     detector.set_model(task.model)
@@ -222,6 +228,7 @@ if __name__ == '__main__':
     parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe'], help='Features to use')
     parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof'], help='Score to use')
     parser.add_argument('--concat', action='store_true', default=False, help='Concatenate features across layers')
+    parser.add_argument('--umap', action='store_true', default=False, help='Use UMAP instead of Mahalanobis')
 
     args = parser.parse_args()
 

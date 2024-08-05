@@ -1,4 +1,6 @@
 import torch
+import umap
+import numpy as np
 
 from cupbearer.detectors.statistical.helpers import mahalanobis
 from cupbearer.detectors.statistical.statistical import (
@@ -58,3 +60,48 @@ class MahalanobisDetector(ActivationCovarianceBasedDetector):
         self.means = variables["means"]
         self.inv_covariances = variables["inv_covariances"]
         self.inv_diag_covariances = variables["inv_diag_covariances"]
+
+class UMAPMahalanobisDetector(MahalanobisDetector):
+    """
+    Mahalanobis detector that learns a UMAP embedding on train data and transforms test data using this embedding.
+    """
+    def __init__(self, n_components=5, n_neighbors=15, min_dist=0.1, **kwargs):
+        super().__init__(**kwargs)
+        self.umap_reducers = {}
+        self.n_components = n_components
+        self.n_neighbors = n_neighbors
+        self.min_dist = min_dist
+
+    def post_covariance_training(self, rcond: float = 1e-3, relative: bool = False, **kwargs):
+        super().post_covariance_training(rcond, relative, **kwargs)
+        
+        for name, activations in self.activations["trusted"].items():
+            reducer = umap.UMAP(n_components=self.n_components, 
+                                n_neighbors=self.n_neighbors, 
+                                min_dist=self.min_dist)
+            reduced_activations = reducer.fit_transform(activations.cpu().numpy())
+            self.umap_reducers[name] = reducer
+            
+            # Update means and covariances with reduced activations
+            self.means["trusted"][name] = torch.tensor(reduced_activations.mean(axis=0), device=self.device)
+            cov = torch.tensor(np.cov(reduced_activations.T), device=self.device)
+            self.covariances["trusted"][name] = cov
+            self.inv_covariances[name] = _pinv(cov, rcond)
+
+    def _individual_layerwise_score(self, name: str, activation: torch.Tensor):
+        # Transform the activation using the learned UMAP embedding
+        reduced_activation = torch.tensor(
+            self.umap_reducers[name].transform(activation.cpu().numpy()),
+            device=self.device
+        )
+        
+        return super()._individual_layerwise_score(name, reduced_activation)
+
+    def _get_trained_variables(self):
+        variables = super()._get_trained_variables()
+        variables["umap_reducers"] = self.umap_reducers
+        return variables
+
+    def _set_trained_variables(self, variables):
+        super()._set_trained_variables(variables)
+        self.umap_reducers = variables["umap_reducers"]

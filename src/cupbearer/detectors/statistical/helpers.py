@@ -1,10 +1,5 @@
 from typing import Optional
 import torch
-import pdb
-
-
-def concat_to_single_layer(activations: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    return {'all': torch.cat([v for k, v in activations.items()], dim=1)}
 
 def update_covariance(curr_mean, curr_C, curr_n, new_data):
     # Should be (batch, dim)

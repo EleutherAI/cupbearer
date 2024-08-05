@@ -2,6 +2,7 @@ import torch
 
 from cupbearer.detectors.statistical.helpers import local_outlier_factor
 from cupbearer.detectors.statistical.statistical import ActivationCovarianceBasedDetector, StatisticalDetector
+import umap
 
 class LOFDetector(ActivationCovarianceBasedDetector):
     use_trusted = True
@@ -43,3 +44,37 @@ class LOFDetector(ActivationCovarianceBasedDetector):
 
     def post_covariance_training(self, **kwargs):
         pass
+
+class UMAPLOFDetector(LOFDetector):
+    def __init__(self, n_components=5, n_neighbors=15, min_dist=0.1, **kwargs):
+        super().__init__(**kwargs)
+        self.umap_reducers = {}
+        self.n_components = n_components
+        self.n_neighbors = n_neighbors
+        self.min_dist = min_dist
+
+    def post_covariance_training(self, **kwargs):
+        super().post_covariance_training(**kwargs)
+        
+        for name, activations in self.activations["trusted"].items():
+            reducer = umap.UMAP(n_components=self.n_components, 
+                                n_neighbors=self.n_neighbors, 
+                                min_dist=self.min_dist)
+            reduced_activations = reducer.fit_transform(activations.cpu().numpy())
+            self.umap_reducers[name] = reducer
+            
+            # Update LOF with reduced activations
+            self.lof[name].fit(reduced_activations)
+
+    def _individual_layerwise_score(self, name: str, activation: torch.Tensor):
+        reduced_activation = self.umap_reducers[name].transform(activation.cpu().numpy())
+        return -self.lof[name].score_samples(reduced_activation)
+
+    def _get_trained_variables(self):
+        variables = super()._get_trained_variables()
+        variables["umap_reducers"] = self.umap_reducers
+        return variables
+
+    def _set_trained_variables(self, variables):
+        super()._set_trained_variables(variables)
+        self.umap_reducers = variables["umap_reducers"]
