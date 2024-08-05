@@ -8,6 +8,7 @@ __pycache__
 /notebooks/data
 /logs
 /notebooks/logs
+/notebooks/results
 /slurm
 /notebooks/slurm
 /.venv
