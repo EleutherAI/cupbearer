@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, Tuple
 from pathlib import Path
 import torch
 from torch import nn
+import pdb
 
 from cupbearer.utils.get_attribution_effects import get_effects
 from .activation_extractor import ActivationExtractor
@@ -36,14 +37,12 @@ class AttributionEffectExtractor(FeatureExtractor):
         self.head_dim = effect_capture_args['head_dim'] if 'head_dim' in effect_capture_args else None
         self.effect_capture_args = effect_capture_args
         self.cache_path = cache_path
-        
         if effect_capture_args['ablation'] in ['mean', 'pcs']:
             assert (trusted_data is not None) and (model is not None), "Trusted data and model must be provided for mean and PCS ablation"
         
         self.set_model(model)
 
         self.noise = self.get_noise_tensor(trusted_data)
-
 
     def compute_features(self, inputs: Any) -> dict[str, torch.Tensor]:
         effects = get_effects(
@@ -81,7 +80,6 @@ class AttributionEffectExtractor(FeatureExtractor):
                 individual_processing_fn=self.individual_processing_fn,
                 cache=cache
             )
-
             maha_detector = MahalanobisDetector(
                 feature_extractor=extractor,
             )

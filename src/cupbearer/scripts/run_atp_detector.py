@@ -77,7 +77,7 @@ def main(
     extractors = []
     # feature_groups = {f"layer_{layer}": [] for layer in layers}
     if mlp_out:
-        layer_list = [f"hf_model.model.layers.{layer}.mlp_out.output" for layer in layers]
+        layer_list = [f"hf_model.model.layers.{layer}.mlp" for layer in layers]
     else:
         layer_list = [f"hf_model.model.layers.{layer}.self_attn" for layer in layers]
     feature_groups = {k: [] for k in layer_list}
@@ -112,7 +112,7 @@ def main(
             if len(features) == 1:
                 # Use input_layernorm layers if only activations are selected
                 if mlp_out:
-                    acts_layer_list = [f"hf_model.model.layers.{layer}.mlp_out.input" for layer in layers]
+                    acts_layer_list = [f"hf_model.model.layers.{layer}.mlp.input" for layer in layers]
                 else:
                     acts_layer_list = [f"hf_model.model.layers.{layer}.input_layernorm.input" for layer in layers]
             else:
