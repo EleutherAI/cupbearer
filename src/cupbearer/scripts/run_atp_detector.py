@@ -37,7 +37,8 @@ def main(
     score,
     random_names=True,
     layerwise=True,
-    concat=False
+    concat=False,
+    mlp_out=False
 ):
     n_layers = 8
     interval = max(1, (last_layer - first_layer) // n_layers)
@@ -75,7 +76,10 @@ def main(
 
     extractors = []
     # feature_groups = {f"layer_{layer}": [] for layer in layers}
-    layer_list = [f"hf_model.model.layers.{layer}.self_attn" for layer in layers]
+    if mlp_out:
+        layer_list = [f"hf_model.model.layers.{layer}.mlp_out.output" for layer in layers]
+    else:
+        layer_list = [f"hf_model.model.layers.{layer}.self_attn" for layer in layers]
     feature_groups = {k: [] for k in layer_list}
 
     for feature in features:
@@ -107,7 +111,10 @@ def main(
         elif feature == 'activations':
             if len(features) == 1:
                 # Use input_layernorm layers if only activations are selected
-                acts_layer_list = [f"hf_model.model.layers.{layer}.input_layernorm.input" for layer in layers]
+                if mlp_out:
+                    acts_layer_list = [f"hf_model.model.layers.{layer}.mlp_out.input" for layer in layers]
+                else:
+                    acts_layer_list = [f"hf_model.model.layers.{layer}.input_layernorm.input" for layer in layers]
             else:
                 acts_layer_list = [l + '.output' for l in layer_list]
             
@@ -229,6 +236,7 @@ if __name__ == '__main__':
     parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof'], help='Score to use')
     parser.add_argument('--concat', action='store_true', default=False, help='Concatenate features across layers')
     parser.add_argument('--umap', action='store_true', default=False, help='Use UMAP instead of Mahalanobis')
+    parser.add_argument('--mlp_out', action='store_true', default=False, help='Use MLP output instead of input')
 
     args = parser.parse_args()
 
@@ -244,7 +252,8 @@ if __name__ == '__main__':
                 args.score,
                 random_names=not args.nonrandom_names,
                 layerwise=args.layerwise,
-                concat=args.concat
+                concat=args.concat,
+                mlp_out=args.mlp_out
             )
     else:
         main(
@@ -257,5 +266,6 @@ if __name__ == '__main__':
             args.score,
             random_names=not args.nonrandom_names,
             layerwise=args.layerwise,
-            concat=args.concat
+            concat=args.concat,
+            mlp_out=args.mlp_out
         )
