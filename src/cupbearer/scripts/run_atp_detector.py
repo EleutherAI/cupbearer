@@ -15,7 +15,7 @@ datasets = [
     "capitals",
     "hemisphere",
     "population",
-    "sciq",
+    # "sciq",
     "sentiment",
     "nli",
     "authors",
@@ -38,13 +38,15 @@ def main(
     random_names=True,
     layerwise=True,
     concat=False,
-    mlp_out=False
+    mlp_out=False,
+    base_model='Mistral-7B-v0.1'
 ):
     n_layers = 8
     interval = max(1, (last_layer - first_layer) // n_layers)
     layers = list(range(first_layer, last_layer + 1, interval))
 
     task = tasks.quirky_lm(
+        base_model=base_model,
         include_untrusted=True,
         mixture=True,
         standardize_template=True,
@@ -69,7 +71,7 @@ def main(
         assert logits.ndim == 3
         return activation_processing_function(logits, inputs, name)[:, effect_tokens].diff(1)[:,0]
 
-    cache_path = f"cache/{dataset}-{features}-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}"
+    cache_path = f"cache/{dataset}-{features}-{base_model}-{model_name}-{first_layer}-{last_layer}"
     if features == "attribution":
         cache_path += f"-{ablation}"
     cache = FeatureCache.load(cache_path + ".pt", device=task.model.device) if Path(cache_path + ".pt").exists() else FeatureCache(device=task.model.device)
@@ -79,7 +81,7 @@ def main(
     if mlp_out:
         layer_list = [f"hf_model.model.layers.{layer}.mlp" for layer in layers]
     else:
-        layer_list = [f"hf_model.model.layers.{layer}.self_attn" for layer in layers]
+        layer_list = [f"hf_model.model.layers.{layer}.self_attn.o_proj" for layer in layers]
     feature_groups = {k: [] for k in layer_list}
 
     for feature in features:
@@ -100,7 +102,7 @@ def main(
                 individual_processing_fn=activation_processing_function,
                 trusted_data=task.trusted_data,
                 model=task.model,
-                cache_path=f"cache/{dataset}-activations-Mistral-7B-v0.1-{model_name}-{first_layer}-{last_layer}.pt",
+                cache_path=f"cache/{dataset}-activations-{base_model}-{model_name}-{first_layer}-{last_layer}.pt",
                 cache=cache,
                 global_processing_fn=global_processing_function
             ))
@@ -189,7 +191,7 @@ def main(
         batch_size = 2
         eval_batch_size = 2
 
-    save_path = f"logs/quirky/{dataset}-{score}-{'_'.join(features)}-Mistral_7B_v0.1-{model_name}-{first_layer}-{last_layer}-{ablation}"
+    save_path = f"logs/quirky/{dataset}-{score}-{'_'.join(features)}-{base_model}-{model_name}-{first_layer}-{last_layer}-{ablation}"
 
     if concat:
         save_path += "-concat"
@@ -217,7 +219,6 @@ def main(
             layerwise=layerwise,
             shuffle=False
         )
-    
     cache.store(cache_path)
     
     del task, detector
@@ -229,7 +230,7 @@ if __name__ == '__main__':
     parser.add_argument('--first_layer', type=int, default=1, help='First layer to use')
     parser.add_argument('--last_layer', type=int, default=31, help='Last layer to use')
     parser.add_argument('--ablation', type=str, default='mean', choices=['mean', 'zero', 'pcs', 'raw', 'grad_norm'], help='Ablation to use')
-    parser.add_argument('--dataset', type=str, default='sciq', help='Dataset to use')
+    parser.add_argument('--dataset', type=str, default='all', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
     parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe'], help='Features to use')
@@ -237,6 +238,7 @@ if __name__ == '__main__':
     parser.add_argument('--concat', action='store_true', default=False, help='Concatenate features across layers')
     parser.add_argument('--umap', action='store_true', default=False, help='Use UMAP instead of Mahalanobis')
     parser.add_argument('--mlp_out', action='store_true', default=False, help='Use MLP output instead of input')
+    parser.add_argument('--base_model', type=str, default='Mistral-7B-v0.1', choices=['Mistral-7B-v0.1', 'Meta-Llama-3.1-8B', 'Meta-Llama-3-8B'], help='Base model to use')
 
     args = parser.parse_args()
 
@@ -253,7 +255,8 @@ if __name__ == '__main__':
                 random_names=not args.nonrandom_names,
                 layerwise=args.layerwise,
                 concat=args.concat,
-                mlp_out=args.mlp_out
+                mlp_out=args.mlp_out,
+                base_model=args.base_model  # Add this line
             )
     else:
         main(
@@ -267,5 +270,6 @@ if __name__ == '__main__':
             random_names=not args.nonrandom_names,
             layerwise=args.layerwise,
             concat=args.concat,
-            mlp_out=args.mlp_out
+            mlp_out=args.mlp_out,
+            base_model=args.base_model  # Add this line
         )

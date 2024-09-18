@@ -76,7 +76,7 @@ class AttributionEffectExtractor(FeatureExtractor):
                 cache = None
 
             extractor = ActivationExtractor(
-                names=list(map(lambda x: x+'.output', self.activation_names)),
+                names=list(map(lambda x: x+'.input', self.activation_names)),
                 individual_processing_fn=self.individual_processing_fn,
                 cache=cache
             )
@@ -91,7 +91,7 @@ class AttributionEffectExtractor(FeatureExtractor):
             means = maha_detector.means
 
             if self.effect_capture_args['ablation'] == 'mean':
-                return {k.replace('.output', ''): v for k, v in means['trusted'].items()}
+                return {k.replace('.input', ''): v for k, v in means['trusted'].items()}
 
             elif self.effect_capture_args['ablation'] == 'pcs':
                 covariances = maha_detector.covariances['trusted']
@@ -103,7 +103,7 @@ class AttributionEffectExtractor(FeatureExtractor):
                     principal_components = eigenvectors[:, sorted_indices[:self.effect_capture_args['n_pcs']]]
                     principal_components /= torch.norm(principal_components, dim=0)
                     mean_activations = torch.matmul(principal_components.T, means[k])
-                    pcs[k.replace('.output', '')] = (principal_components.T, mean_activations)
+                    pcs[k.replace('.input', '')] = (principal_components.T, mean_activations)
 
                 return pcs
 

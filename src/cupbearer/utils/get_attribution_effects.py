@@ -9,36 +9,36 @@ import pdb
 class _Finished(Exception):
     pass
 
-def process_backward_zeros_transformer(noise: None, clean: torch.Tensor, grad_output: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def process_backward_zeros_transformer(noise: None, clean: torch.Tensor, grad: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Replace clean activations with zeros and reshape grad_output correctly for transformers
+    Replace clean activations with zeros and reshape grad correctly for transformers
     """
     direction = -clean
 
     if head_dim > 0:
         direction = rearrange(direction, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
-        grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
-        return direction, grad_output
+        grad = rearrange(grad, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
+        return direction, grad
     else:
-        return direction, grad_output
+        return direction, grad
 
-def process_backward_transformer(noise: torch.Tensor, clean: torch.Tensor, grad_output: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def process_backward_transformer(noise: torch.Tensor, clean: torch.Tensor, grad: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Replace clean activations with noise activations and reshape grad_output correctly for transformers
+    Replace clean activations with noise activations and reshape grad correctly for transformers
     """
     # Unsqueeze at sequence dimension
     noise = noise
     direction = noise - clean
     if head_dim > 0:
         direction = rearrange(direction, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
-        grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
-        return direction, grad_output
+        grad = rearrange(grad, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
+        return direction, grad
     else:
-        return direction, grad_output
+        return direction, grad
 
-def process_backward_project_transformer(noise: Tuple[torch.Tensor, torch.Tensor], clean: torch.Tensor, grad_output: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def process_backward_project_transformer(noise: Tuple[torch.Tensor, torch.Tensor], clean: torch.Tensor, grad: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Orthogonally project clean activations to noise activations and reshape grad_output correctly for transformers
+    Orthogonally project clean activations to noise activations and reshape grad correctly for transformers
     """
     noise_vecs = rearrange(noise[0], 'noise_batch d -> noise_batch 1 d')
     noise_vals = rearrange(noise[1], 'noise_batch -> noise_batch 1 1')
@@ -53,42 +53,42 @@ def process_backward_project_transformer(noise: Tuple[torch.Tensor, torch.Tensor
     if head_dim > 0:
         noise_batch_size = noise_vecs.shape[0]
         direction = rearrange(direction, 'batch noise_batch seq (nh hd) -> batch seq (noise_batch nh) hd', hd = head_dim)
-        grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
-        grad_output = repeat(grad_output, 'batch seq nh hd -> batch seq (noise_batch nh) hd', noise_batch = noise_batch_size)
-        return direction, grad_output
+        grad = rearrange(grad, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
+        grad = repeat(grad, 'batch seq nh hd -> batch seq (noise_batch nh) hd', noise_batch = noise_batch_size)
+        return direction, grad
     else:
         direction = rearrange(direction, 'batch noise_batch seq d -> batch seq noise_batch d')
-        grad_output = rearrange(grad_output, 'batch seq d -> batch seq 1 d')
-        return direction, grad_output
+        grad = rearrange(grad, 'batch seq d -> batch seq 1 d')
+        return direction, grad
 
-def process_backward_norm_transformer(noise: None, clean: torch.Tensor, grad_output: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def process_backward_norm_transformer(noise: None, clean: torch.Tensor, grad: torch.Tensor, head_dim: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Orthogonally project clean activations to noise activations and reshape grad_output correctly for conv nets
+    Orthogonally project clean activations to noise activations and reshape grad correctly for conv nets
     """
     if head_dim > 0:
-        grad_output = rearrange(grad_output, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
-    direction = grad_output
-    return direction, grad_output
+        grad = rearrange(grad, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
+    direction = grad
+    return direction, grad
 
-def process_backward_zeros_conv(noise: None, clean: torch.Tensor, grad_output: torch.Tensor, *args) -> Tuple[torch.Tensor, torch.Tensor]:
+def process_backward_zeros_conv(noise: None, clean: torch.Tensor, grad: torch.Tensor, *args) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Replace clean activations with zeros and reshape grad_output correctly for conv nets
+    Replace clean activations with zeros and reshape grad correctly for conv nets
     """
-    return rearrange(-clean, 'batch maps h w -> batch maps (h w)'), rearrange(grad_output, 'batch maps h w -> batch maps (h w)')
+    return rearrange(-clean, 'batch maps h w -> batch maps (h w)'), rearrange(grad, 'batch maps h w -> batch maps (h w)')
 
-def process_backward_conv(noise: torch.Tensor, clean: torch.Tensor, grad_output: torch.Tensor, *args) -> Tuple[torch.Tensor, torch.Tensor]:
+def process_backward_conv(noise: torch.Tensor, clean: torch.Tensor, grad: torch.Tensor, *args) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Orthogonally project clean activations to noise activations and reshape grad_output correctly for conv nets
+    Orthogonally project clean activations to noise activations and reshape grad correctly for conv nets
     """
     # We treat the feature maps analogously to the sequence dimension in tranformers
     clean = rearrange(clean, 'batch maps h w -> batch maps (h w)')
     direction = noise - clean
-    grad_output = rearrange(grad_output, 'batch maps (h w) -> batch maps h w')
-    return direction, grad_output
+    grad = rearrange(grad, 'batch maps (h w) -> batch maps h w')
+    return direction, grad
 
-def process_backward_project_conv(noise: Tuple[torch.Tensor, torch.Tensor], clean: torch.Tensor, grad_output: torch.Tensor, *args) -> Tuple[torch.Tensor, torch.Tensor]:
+def process_backward_project_conv(noise: Tuple[torch.Tensor, torch.Tensor], clean: torch.Tensor, grad: torch.Tensor, *args) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Orthogonally project clean activations to noise activations and reshape grad_output correctly for conv nets
+    Orthogonally project clean activations to noise activations and reshape grad correctly for conv nets
     """
     noise_vecs = rearrange(noise[0], 'noise_batch (h w) -> noise_batch 1 (h w)')
     noise_vals = rearrange(noise[1], 'noise_batch -> noise_batch 1 1')
@@ -100,8 +100,8 @@ def process_backward_project_conv(noise: Tuple[torch.Tensor, torch.Tensor], clea
             + (noise_vals * noise_vecs))
     
     direction = noise - clean
-    grad_output = rearrange(grad_output, 'batch maps (h w) -> batch maps h w')
-    return direction, grad_output
+    grad = rearrange(grad, 'batch maps (h w) -> batch maps h w')
+    return direction, grad
 
 def get_tensor_process_fn(
     effect_capture_args: Dict[str, Any]
@@ -149,10 +149,10 @@ def prepare_model_for_effects(
     names = list(noise_acts.keys())
 
     def bwd_hook(module: nn.Module, grad_input: tuple[torch.Tensor, ...] | torch.Tensor, grad_output: tuple[torch.Tensor, ...] | torch.Tensor):
-        grad_output = grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        grad_input = grad_input[0] if isinstance(grad_input, tuple) else grad_input
         clean = mod_to_clean[module]
-        direction, grad_output = get_tensor_process_fn(effect_capture_args)(mod_to_noise[module], clean, grad_output, head_dim)
-        effect = torch.linalg.vecdot(direction, grad_output.type_as(direction))
+        direction, grad_input = get_tensor_process_fn(effect_capture_args)(mod_to_noise[module], clean, grad_input, head_dim)
+        effect = torch.linalg.vecdot(direction, grad_input.type_as(direction))
         name = mod_to_name[module]
         effects[name] = effect.clone().detach()
 
@@ -209,103 +209,3 @@ def get_effects(
                 assert out.ndim == 1, "output_func should reduce to a 1D tensor"
                 out.backward(torch.ones_like(out))
     return effects
-
-def get_edge_effects(
-    *args,
-    model: nn.Module,
-    noise_acts: Dict[str, torch.Tensor] | Dict[str, Tuple[torch.Tensor, torch.Tensor]],
-    output_func: Callable[[torch.Tensor], torch.Tensor],
-    head_dim: int = 0,
-    n_layers: int = 4,
-    **kwargs
-) -> dict[str, torch.Tensor]:
-    """
-    Only supports Mistral 7B
-    """
-    effects = defaultdict(list)
-    handles = []
-    mod_to_clean = {}
-    mod_to_noise = {}
-    mod_to_name = {}
-    mod_to_parents = {}
-
-    def get_layer(name: str) -> float:
-        return next((int(part) for part in name.split('.') if part.isdigit()), float('inf'))
-
-    def bwd_hook(module: nn.Module, grad_input: tuple[torch.Tensor, ...] | torch.Tensor, grad_output: tuple[torch.Tensor, ...] | torch.Tensor):
-        if isinstance(grad_input, tuple):
-            grad_input, *_ = grad_input
-        
-        target_name = mod_to_name[module]
-        head_target = head_dim > 0 and target_name.endswith('self_attn')
-  
-        for original_module in mod_to_parents[module]:
-            original_name = mod_to_name[original_module]
-            clean = mod_to_clean[original_module]
-            noise = mod_to_noise[original_name]
-            
-            if original_name.endswith('self_attn'):
-                assert head_dim > 0, "head_dim must be greater than 0 if source is attention head"
-                grad_input = rearrange(grad_input, 'batch seq (nh hd) -> batch seq nh hd', hd = head_dim)
-                clean = rearrange(clean, 'batch seq (nh hd) -> batch seq nh hd', hd=head_dim)
-                noise = rearrange(noise, '(nh hd) -> nh hd', hd=head_dim)
-                n_heads = noise.shape[-2]
-
-                # Compute effects for each source head
-                effects_list = []
-                if head_target:
-                    for i in range(n_heads):
-                        direction = noise[i, :] - clean[..., i, :]
-                        # One copy for each head target
-                        direction = rearrange(direction, 'batch seq hd -> batch seq 1 hd')
-                        effect = torch.linalg.vecdot(direction, grad_input.type_as(direction))
-                        effects_list.append(effect)                
-                    # Concatenate effects
-                    effect = rearrange(effects_list, 'nh_source batch seq nh_target -> batch seq (nh_source nh_target)')
-                else:
-                    direction = noise - clean
-                    effect = torch.linalg.vecdot(direction, grad_input.type_as(direction))
-            else:
-                # mlp -> mlp
-                direction = noise - clean
-                effect = rearrange(torch.linalg.vecdot(direction, grad_input.type_as(direction)), 'batch seq -> batch seq 1')
-            
-            effects[original_name].append(effect.clone().detach())
-
-    def fwd_hook(module: nn.Module, input: tuple[torch.Tensor, ...] | torch.Tensor, output: tuple[torch.Tensor, ...] | torch.Tensor):
-        output = output[0] if isinstance(output, tuple) else output
-
-        mod_to_clean[module] = output.clone().detach()
-
-    modules = list(model.named_modules())
-
-    for i, (name, module) in enumerate(modules):
-        mod_to_name[module] = name
-        mod_to_parents[module] = []
-        current_layer = get_layer(name)
-        
-        for j in range(0, i):
-            parent_name, parent_module = modules[j]
-            parent_layer = get_layer(parent_name)
-            if current_layer - parent_layer <= n_layers and parent_name in noise_acts and (name.endswith('mlp') or name.endswith('self_attn')):
-                mod_to_parents[module].append(parent_module)
-        
-        if name in noise_acts:
-            handles.append(module.register_forward_hook(fwd_hook))
-            mod_to_noise[name] = noise_acts[name]
-        
-        if mod_to_parents[module]:
-            handles.append(module.register_full_backward_hook(bwd_hook))
-
-    try:
-        with torch.enable_grad():
-            out = model(*args, **kwargs)
-            out = output_func(out, *args, 'out')
-            assert out.ndim == 1, "output_func should reduce to a 1D tensor"
-            out.backward(torch.ones_like(out))
-    finally:
-        for handle in handles:
-            handle.remove()
-        model.zero_grad()
-
-    return {k: torch.cat(v, dim=-1) for k, v in effects.items()}

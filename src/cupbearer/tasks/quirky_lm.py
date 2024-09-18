@@ -22,7 +22,8 @@ def quirky_lm(
     dataset: str = "sciq",
     easy_quantile: float = 0.25,
     hard_quantile: float = 0.75,
-    max_split_size: int = 4000
+    max_split_size: int = 4000,
+    base_model='Mistral-7B-v0.1'
 ):
     from elk_generalization.datasets.loader_utils import templatize_quirky_dataset, ALICE_NAMES, BOB_NAMES
     from peft import AutoPeftModelForCausalLM
@@ -33,7 +34,15 @@ def quirky_lm(
 
     mixture_str = "mixture" if mixture else "fixed"
     name_str = "multiname" if random_names else "singlename"
-    model_name = f"EleutherAI/Mistral-7B-v0.1-{dataset}-random"
+    model_name = f"EleutherAI/{base_model}-{dataset}-random"
+    if base_model == 'Meta-Llama-3-8B':
+        base_model_name = 'meta-llama/Meta-Llama-3-8B'
+    elif base_model == 'Meta-Llama-3.1-8B':
+        base_model_name = 'meta-llama/Meta-Llama-3.1-8B'
+    elif base_model == 'Mistral-7B-v0.1':
+        base_model_name = 'mistralai/Mistral-7B-v0.1'
+    else:
+        raise ValueError(f"Invalid base model: {base_model}")
 
     if standardize_template:
         model_name += "-standardized"
@@ -45,9 +54,13 @@ def quirky_lm(
     # We might not want to actually load a model if we're getting all activations
     # from a cache anyway.
     if not fake_model:
-        model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
-        model = model.merge_and_unload()
-        tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
+        if base_model == "Meta-Llama-3.1-8B":
+            from transformers import AutoModelForCausalLM
+            model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
+        else:
+            model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
+            model = model.merge_and_unload()
+        tokenizer = AutoTokenizer.from_pretrained(base_model_name)
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "right"
 
