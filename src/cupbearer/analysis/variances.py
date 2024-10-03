@@ -16,7 +16,6 @@ def plot_variances(
     normalized_between = {
         k: v / total_variances[k] for k, v in between_class_variances.items()
     }
-
     fig, ax = plt.subplots()
     ax.bar(
         data.collector.activation_names,
@@ -31,8 +30,11 @@ def plot_variances(
             normalized_within[k].cpu().numpy() for k in data.collector.activation_names
         ],
     )
+
+    variance_ratios = {k: normalized_between[k] / (normalized_between[k] + normalized_within[k]) for k in data.collector.activation_names}
+
     ax.set_ylabel("Fraction of total variance")
     ax.legend()
     ax.set_xticklabels(data.collector.activation_names, rotation=45, ha="right")
     ax.set_title(title)
-    return fig
+    return fig, variance_ratios

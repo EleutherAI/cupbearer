@@ -5,3 +5,4 @@ from .spectral_detector import SpectralSignatureDetector
 from .statistical import ActivationCovarianceBasedDetector, StatisticalDetector
 from .isoforest_detector import IsoForestDetector
 from .lof_detector import LOFDetector, UMAPLOFDetector
+from .laplace_detector import LaplaceDetector

@@ -9,7 +9,12 @@ import sklearn.metrics
 import numpy as np
 from tqdm import tqdm
 from loguru import logger
-import pdb
+
+from cupbearer import tasks
+
+def individual_log_loss(y_true, y_pred, labels=[0, 1]):
+    return -np.sum(np.eye(len(labels))[y_true.astype(int)] * y_pred, axis=1)
+
 
 def maybe_auc(y_true, y_scores):
     try:
@@ -20,7 +25,7 @@ def maybe_auc(y_true, y_scores):
 def measure_accuracy(task, batch_size=32, pbar=True, save_path=None, histogram_percentile=95):
     def get_scores(batch):
         inputs = utils.inputs_from_batch(batch)
-        encoding = task.model.tokenize(inputs)
+        encoding = task.model.tokenize(inputs, **task.model.tokenize_kwargs)
         mask = encoding['attention_mask']
 
         no_token = task.model.tokenizer.encode(' No', add_special_tokens=False)[-1]
@@ -28,7 +33,7 @@ def measure_accuracy(task, batch_size=32, pbar=True, save_path=None, histogram_p
         effect_tokens = torch.tensor([no_token, yes_token], dtype=torch.long, device=task.model.device)
 
         logits = task.model(inputs).logits[..., effect_tokens][range(len(inputs)), mask.sum(dim=1) - 1]
-        return torch.nn.functional.softmax(logits, dim=1)[:, 1]
+        return torch.nn.functional.log_softmax(logits, dim=1)
 
     dataset = task.test_data
     assert isinstance(dataset, MixedData), type(dataset)
@@ -71,7 +76,34 @@ def measure_accuracy(task, batch_size=32, pbar=True, save_path=None, histogram_p
     anomalies = np.concatenate(anomalies).astype(bool)
     agreement = np.concatenate(agreement).astype(bool)
     answers = np.concatenate(answers).astype(bool)
-    pdb.set_trace()
+
+    loss = individual_log_loss(answers, scores)
+    bob_loss = individual_log_loss(answers[anomalies], scores[anomalies])
+    alice_loss = individual_log_loss(answers[~anomalies], scores[~anomalies])
+    
+    disagreeing = ~agreement
+    bob_gt_loss_disagree = individual_log_loss(~answers[disagreeing & anomalies], scores[disagreeing & anomalies])
+    bob_loss_disagree = individual_log_loss(answers[disagreeing & anomalies], scores[disagreeing & anomalies])
+    alice_gt_loss_disagree = individual_log_loss(answers[disagreeing & ~anomalies], scores[disagreeing & ~anomalies])
+    alice_wrong_label_loss_disagree = individual_log_loss(~answers[disagreeing & ~anomalies], scores[disagreeing & ~anomalies])
+
+    logger.info(f"Overall Loss: {loss.mean():.4f}")
+    logger.info(f"Bob Loss: {bob_loss.mean():.4f}")
+    logger.info(f"Alice Loss: {alice_loss.mean():.4f}")
+    logger.info(f"Bob GT Loss (Disagreeing): {bob_gt_loss_disagree.mean():.4f}")
+    logger.info(f"Bob Loss (Disagreeing): {bob_loss_disagree.mean():.4f}")
+    logger.info(f"Alice GT Loss (Disagreeing): {alice_gt_loss_disagree.mean():.4f}")
+    logger.info(f"Alice Wrong-Label Loss (Disagreeing): {alice_wrong_label_loss_disagree.mean():.4f}")
+    
+    metrics["Overall_Loss"] = loss.tolist()
+    metrics["Bob_Loss"] = bob_loss.tolist()
+    metrics["Alice_Loss"] = alice_loss.tolist()
+    metrics["Bob_GT_Loss_Disagree"] = bob_gt_loss_disagree.tolist()
+    metrics["Bob_Loss_Disagree"] = bob_loss_disagree.tolist()
+    metrics["Alice_GT_Loss_Disagree"] = alice_gt_loss_disagree.tolist()
+    metrics["Alice_Wrong_Label_Loss_Disagree"] = alice_wrong_label_loss_disagree.tolist()
+
+    scores = scores[:, 1]
 
     auc_roc = maybe_auc(
         answers,
@@ -151,3 +183,46 @@ def measure_accuracy(task, batch_size=32, pbar=True, save_path=None, histogram_p
         json.dump(metrics, f)
 
     return metrics
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Measure accuracy for a given task")
+    parser.add_argument("--dataset", type=str, default="all", help="Dataset to use (or 'all' for all datasets)")
+    parser.add_argument("--base_model", type=str, default="Mistral-7B-v0.1", help="Base model to use")
+    args = parser.parse_args()
+
+    datasets = [
+        "capitals", "hemisphere", "population", "sciq", "sentiment", "nli",
+        "authors", "addition", "subtraction", "multiplication",
+        "modularaddition", "squaring"
+    ]
+
+    if args.dataset == "all":
+        for dataset in datasets:
+            task = tasks.quirky_lm(
+                base_model=args.base_model,
+                include_untrusted=True,
+                mixture=True,
+                standardize_template=True,
+                dataset=dataset,
+                random_names=True,
+                max_split_size=4000
+            )
+            metrics = measure_accuracy(task, save_path=f"logs/quirky/accuracy/{dataset}_{args.base_model}")
+            print(f"Metrics for {dataset}:")
+            print(json.dumps(metrics, indent=2))
+    else:
+        task = tasks.quirky_lm(
+            base_model=args.base_model,
+            include_untrusted=True,
+            mixture=True,
+            standardize_template=True,
+            dataset=args.dataset,
+            random_names=True,
+            max_split_size=4000
+        )
+        metrics = measure_accuracy(task, save_path=f"logs/quirky/accuracy/{args.dataset}_{args.base_model}")
+        print(f"Metrics for {args.dataset}:")
+        print(json.dumps(metrics, indent=2))

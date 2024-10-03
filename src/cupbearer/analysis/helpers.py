@@ -10,7 +10,6 @@ from loguru import logger
 
 from cupbearer import utils, scripts, detectors
 from cupbearer.data import MixedData, HuggingfaceDataset
-from cupbearer.detectors.activation_based import ActivationCache
 from cupbearer.detectors.statistical.helpers import update_covariance
 from cupbearer.tasks import Task
 import gc
@@ -23,11 +22,11 @@ class StatisticsCollector:
         activation_names: list[str],
         activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor]
         | None = None,
-        cache: ActivationCache | None = None,
+        cache: None = None,
     ):
         self.activation_names = activation_names
         self.activation_processing_func = activation_processing_func
-        self.cache = cache
+        self.cache = None
 
     def set_model(self, model: torch.nn.Module):
         # This is separate from __init__ because we want to be able to set the model
@@ -41,7 +40,7 @@ class StatisticsCollector:
     def _get_activations_no_cache(self, inputs) -> dict[str, torch.Tensor]:
         device = next(self.model.parameters()).device
         inputs = utils.inputs_to_device(inputs, device)
-        acts = utils.get_activations(self.model, self.activation_names, inputs)
+        acts = utils.get_activations(inputs, model = self.model, names = self.activation_names)
 
         # Can be used to for example select activations at specific token positions
         if self.activation_processing_func is not None:
@@ -159,7 +158,7 @@ class StatisticsCollector:
         # TODO: figure out a way to refactor
 
         assert isinstance(data, MixedData)
-        assert data.return_anomaly_labels
+        assert data.return_labels[0] == 'anomaly'
 
         with torch.inference_mode():
             data_loader = torch.utils.data.DataLoader(
@@ -179,7 +178,7 @@ class StatisticsCollector:
                     data_loader, total=max_steps or len(data_loader)
                 )
 
-            for i, (batch, labels) in enumerate(data_loader):
+            for i, (batch, (labels, _)) in enumerate(data_loader):
                 if max_steps and i >= max_steps:
                     break
                 activations = self.get_activations(batch)
@@ -238,7 +237,7 @@ class TaskData:
         n_samples: int = 64,
         activation_processing_func: Callable[[torch.Tensor, Any, str], torch.Tensor]
         | None = None,
-        cache: ActivationCache | None = None,
+        cache: None = None,
         batch_size: int = 4
     ):
         collector = StatisticsCollector(
@@ -254,12 +253,12 @@ class TaskData:
         all_activations = []
         all_labels = []
         total_samples = 0
-        for batch, test_labels in tqdm.tqdm(dataloader):
+        for batch, (anomaly_labels, _) in tqdm.tqdm(dataloader):
             activations = collector.get_activations(batch)
             all_activations.append({k: v.cpu() for k, v in activations.items()})
-            all_labels.append(test_labels)
+            all_labels.append(anomaly_labels)
 
-            batch_size = test_labels.size(0)
+            batch_size = anomaly_labels.size(0)
             total_samples += batch_size
             if total_samples > n_samples:
                 break
@@ -279,7 +278,7 @@ class TaskData:
             all_labels_train.append(labels)
         activations_train = {k: torch.cat([a[k] for a in all_activations_train]) for k in all_activations_train[0].keys()}
         labels_train = torch.cat(all_labels_train)
-        # collector.train(data=task.test_data, batch_size=batch_size)
+        collector.train(data=task.test_data, batch_size=batch_size)
         return TaskData(
             activations=activations,
             activations_train=activations_train,

@@ -27,7 +27,7 @@ def quirky_lm(
 ):
     from elk_generalization.datasets.loader_utils import templatize_quirky_dataset, ALICE_NAMES, BOB_NAMES
     from peft import AutoPeftModelForCausalLM
-
+    from transformers import AutoModelForCausalLM
     ########################
     # Load model and data
     ########################
@@ -54,12 +54,9 @@ def quirky_lm(
     # We might not want to actually load a model if we're getting all activations
     # from a cache anyway.
     if not fake_model:
-        if base_model == "Meta-Llama-3.1-8B":
-            from transformers import AutoModelForCausalLM
-            model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
-        else:
-            model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
-            model = model.merge_and_unload()
+        model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
+        # model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map=device, torch_dtype=torch.bfloat16)
+        model = model.merge_and_unload()
         tokenizer = AutoTokenizer.from_pretrained(base_model_name)
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "right"
@@ -81,7 +78,7 @@ def quirky_lm(
         random_names=random_names,
         easy_quantile=easy_quantile,
         hard_quantile=hard_quantile,
-        finetune=False
+        finetune=(easy_quantile >= hard_quantile)
     )
 
     ########################
@@ -136,7 +133,6 @@ def quirky_lm(
         logger.debug(f"Bob untrusted: {len(bob_train)} samples")
     else:
         logger.debug("No untrusted data")
-
     return Task.from_separate_data(
         model=HuggingfaceLM(model=model, tokenizer=tokenizer, device=device),
         trusted_data=quirky_dataset(alice_trusted.select(range(min(len(alice_trusted), max_split_size)))),

@@ -5,8 +5,8 @@ import os
 import torch
 
 from cupbearer import tasks, scripts
-from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector, UMAPMahalanobisDetector, UMAPLOFDetector
-from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor
+from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector, UMAPMahalanobisDetector, UMAPLOFDetector, LaplaceDetector
+from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor, NFlowExtractor
 from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task, concat_to_single_layer
 from cupbearer.detectors.extractors.core import FeatureCache
 import gc
@@ -15,7 +15,7 @@ datasets = [
     "capitals",
     "hemisphere",
     "population",
-    # "sciq",
+    "sciq",
     "sentiment",
     "nli",
     "authors",
@@ -81,7 +81,7 @@ def main(
     if mlp_out:
         layer_list = [f"hf_model.model.layers.{layer}.mlp" for layer in layers]
     else:
-        layer_list = [f"hf_model.model.layers.{layer}.self_attn.o_proj" for layer in layers]
+        layer_list = [f"hf_model.model.layers.{layer}.input_layernorm.input" for layer in layers]
     feature_groups = {k: [] for k in layer_list}
 
     for feature in features:
@@ -159,6 +159,17 @@ def main(
 
             emb = task.model.hf_model.get_input_embeddings()
             emb.requires_grad_(True)
+        
+        elif feature == 'nflow':
+            names = [f'hf_model.model.layers.{layer}' for layer in [23, 29]]
+            flow_paths = [f'/mnt/ssd-1/nora/flows/llama-3.1/layers.{layer}' for layer in [23, 29]]
+
+            extractors.append(NFlowExtractor(
+                names=names,
+                flow_paths=flow_paths,
+                individual_processing_fn=activation_processing_function,
+                global_processing_fn=global_processing_function
+            ))
 
     if concat:
         for ex in extractors:
@@ -181,6 +192,8 @@ def main(
             detector = UMAPLOFDetector(feature_extractor)
         else:
             detector = LOFDetector(feature_extractor)
+    elif score == 'laplace':
+        detector = LaplaceDetector(feature_extractor)
     else:
         raise ValueError(f"Unknown score: {score}")
     detector.set_model(task.model)
@@ -233,12 +246,12 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='all', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
-    parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe'], help='Features to use')
-    parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof'], help='Score to use')
+    parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe', 'nflow'], help='Features to use')
+    parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof', 'laplace'], help='Score to use')
     parser.add_argument('--concat', action='store_true', default=False, help='Concatenate features across layers')
     parser.add_argument('--umap', action='store_true', default=False, help='Use UMAP instead of Mahalanobis')
     parser.add_argument('--mlp_out', action='store_true', default=False, help='Use MLP output instead of input')
-    parser.add_argument('--base_model', type=str, default='Mistral-7B-v0.1', choices=['Mistral-7B-v0.1', 'Meta-Llama-3.1-8B', 'Meta-Llama-3-8B'], help='Base model to use')
+    parser.add_argument('--base_model', type=str, choices=['Mistral-7B-v0.1', 'Meta-Llama-3.1-8B', 'Meta-Llama-3-8B'], help='Base model to use')
 
     args = parser.parse_args()
 
