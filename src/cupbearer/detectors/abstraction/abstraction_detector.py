@@ -1,110 +1,81 @@
-import functools
 from pathlib import Path
 from typing import Any, Callable
 
 import lightning as L
 import torch
-import torch.nn.functional as F
 
+from cupbearer import utils
 from cupbearer.detectors.abstraction.abstraction import (
     Abstraction,
     AutoencoderAbstraction,
     LocallyConsistentAbstraction,
 )
-from cupbearer.detectors.anomaly_detector import (
-    ActivationBasedDetector,
-)
-
-
-def per_layer(func: Callable):
-    @functools.wraps(func)
-    def wrapper(
-        inputs: dict[str, torch.Tensor | None],
-        targets: dict[str, torch.Tensor],
-        layerwise: bool,
-        *args,
-        **kwargs,
-    ):
-        layer_losses: dict[str, torch.Tensor] = {}
-        assert inputs.keys() == targets.keys()
-        for k in inputs.keys():
-            if inputs[k] is None:
-                # No prediction was made for this layer
-                continue
-            input = inputs[k].flatten(start_dim=1)
-            target = targets[k].flatten(start_dim=1)
-
-            losses = func(input, target, *args, **kwargs)
-            assert losses.ndim == 1
-            layer_losses[k] = losses
-
-        if layerwise:
-            return layer_losses
-
-        n = len(layer_losses)
-        assert n > 0
-        return sum(x for x in layer_losses.values()) / n
-
-    return wrapper
-
-
-@per_layer
-def compute_cosine_losses(input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    # Cosine distance can be NaN if one of the inputs is exactly zero
-    # which is why we need the eps (which sets cosine distance to 1 in that case).
-    # This doesn't happen in realistic scenarios, but in tests with very small
-    # hidden dimensions and ReLUs, it's possible.
-    return 1 - F.cosine_similarity(input, target, eps=1e-6)
-
-
-@per_layer
-def compute_kl_losses(input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    return F.kl_div(input, target, reduction="none", log_target=True).sum(dim=1)
+from cupbearer.detectors.activation_based import ActivationBasedDetector
+from cupbearer.detectors.extractors import FeatureExtractor
 
 
 def compute_losses(
     abstraction: Abstraction,
+    inputs,
     activations: dict[str, torch.Tensor],
-    layerwise: bool = False,
-):
-    # TODO this is a bit rigid, possibly this should be configurable
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     if isinstance(abstraction, LocallyConsistentAbstraction):
-        abstractions, predicted_abstractions = abstraction(activations)
-        losses = compute_cosine_losses(
-            predicted_abstractions, abstractions, layerwise=layerwise
-        )
+        # LocallyConsistentAbstraction returns (abstractions, predicted_abstractions),
+        # where abstractions are the output of tau maps and function as our prediction
+        # targets.
+        targets, predictions = abstraction(inputs, activations)
     elif isinstance(abstraction, AutoencoderAbstraction):
-        abstractions, reconstructed_activations = abstraction(activations)
-        losses = compute_kl_losses(
-            reconstructed_activations, activations, layerwise=layerwise
-        )
-    return losses
+        # AutoencoderAbstraction returns (abstractions, reconstructed_activations).
+        # We don't care about abstractions, our target are the full model's activations.
+        _, predictions = abstraction(inputs, activations)
+        targets = activations
+    else:
+        raise ValueError(f"Unsupported abstraction type: {type(abstraction)}")
+
+    layer_losses: dict[str, torch.Tensor] = {}
+    assert predictions.keys() == targets.keys()
+    for k in predictions.keys():
+        if predictions[k] is None:
+            # No prediction was made for this layer
+            continue
+        # prediction = predictions[k].flatten(start_dim=1)
+        # target = targets[k].flatten(start_dim=1)
+
+        losses = abstraction.loss_fn(k)(predictions[k], targets[k])
+        assert losses.ndim == 1
+        layer_losses[k] = losses
+
+    n = len(layer_losses)
+    assert n > 0
+    return sum(x for x in layer_losses.values()) / n, layer_losses
 
 
 class AbstractionModule(L.LightningModule):
     def __init__(
         self,
-        get_activations: Callable[[torch.Tensor], tuple[Any, dict[str, torch.Tensor]]],
         abstraction: Abstraction,
         lr: float,
     ):
         super().__init__()
 
-        self.get_activations = get_activations
         self.abstraction = abstraction
         self.lr = lr
 
     def _shared_step(self, batch):
-        _, activations = self.get_activations(batch)
-        losses = compute_losses(self.abstraction, activations)
+        samples, features = batch
+        inputs = utils.inputs_from_batch(samples)
+        losses, layer_losses = compute_losses(self.abstraction, inputs, features)
         assert isinstance(losses, torch.Tensor)
-        assert losses.ndim == 1 and len(losses) == len(batch[0])
+        assert losses.ndim == 1 and len(losses) == len(next(iter(features.values())))
         loss = losses.mean(0)
-        return loss
+        layer_losses = {k: v.mean(0) for k, v in layer_losses.items()}
+        return loss, layer_losses
 
     def training_step(self, batch, batch_idx):
-        loss = self._shared_step(batch)
+        loss, layer_losses = self._shared_step(batch)
         self.log("train/loss", loss, prog_bar=True)
+        for k, v in layer_losses.items():
+            self.log(f"train/layer_loss/{k}", v)
         return loss
 
     def configure_optimizers(self):
@@ -115,44 +86,55 @@ class AbstractionModule(L.LightningModule):
 class AbstractionDetector(ActivationBasedDetector):
     """Anomaly detector based on an abstraction."""
 
-    def __init__(self, abstraction: Abstraction):
-        self.abstraction = abstraction
-        names = list(abstraction.tau_maps.keys())
-        super().__init__(activation_name_func=lambda _: names)
-
-    def train(
+    def __init__(
         self,
-        trusted_data,
-        untrusted_data,
+        abstraction: Abstraction,
+        feature_extractor: FeatureExtractor | None = None,
+        individual_processing_fn: Callable[[torch.Tensor, Any, str], torch.Tensor]
+        | None = None,
+        global_processing_fn: Callable[
+            [dict[str, torch.Tensor]], dict[str, torch.Tensor]
+        ]
+        | None = None,
+        layer_aggregation: str = "mean",
+    ):
+        self.abstraction = abstraction
+        super().__init__(
+            feature_extractor=feature_extractor,
+            activation_names=list(abstraction.tau_maps.keys()),
+            layer_aggregation=layer_aggregation,
+            individual_processing_fn=individual_processing_fn,
+            global_processing_fn=global_processing_fn,
+        )
+
+    def _train(
+        self,
+        trusted_dataloader,
+        untrusted_dataloader,
         save_path: Path | str,
         *,
         lr: float = 1e-3,
-        batch_size: int = 64,
         **trainer_kwargs,
     ):
-        if trusted_data is None:
+        if trusted_dataloader is None:
             raise ValueError("Abstraction detector requires trusted training data.")
         # Possibly we should store this as a submodule to save optimizers and continue
         # training later. But as long as we don't actually make use of that,
         # this is easiest.
         module = AbstractionModule(
-            self.get_activations,
             self.abstraction,
             lr=lr,
-        )
-
-        train_loader = torch.utils.data.DataLoader(
-            trusted_data, batch_size=batch_size, shuffle=True
         )
 
         # TODO: implement validation data
 
         self.model.eval()
-        # We don't need gradients for base model parameters:
-        required_grad = {}
-        for name, param in self.model.named_parameters():
-            required_grad[name] = param.requires_grad
-            param.requires_grad = False
+
+        # Pytorch lightning moves the model to the CPU after it's done training.
+        # We don't want to expose that behavior to the user, since it's really annoying
+        # when not using Lightning.
+        original_device = next(self.model.parameters()).device
+
         # HACK: by adding the model as a submodule to the LightningModule, it gets
         # transferred to the same device Lightning uses for everything else
         # (which seems tricky to do manually).
@@ -161,20 +143,16 @@ class AbstractionDetector(ActivationBasedDetector):
         trainer = L.Trainer(default_root_dir=save_path, **trainer_kwargs)
         trainer.fit(
             model=module,
-            train_dataloaders=train_loader,
+            train_dataloaders=trusted_dataloader,
         )
 
-        # Restore original requires_grad values:
-        for name, param in self.model.named_parameters():
-            param.requires_grad = required_grad[name]
+        module.to(original_device)
 
-    def layerwise_scores(self, batch):
-        _, activations = self.get_activations(batch)
-        return compute_losses(self.abstraction, activations, layerwise=True)
+    def _compute_layerwise_scores(self, inputs, features):
+        _, layer_losses = compute_losses(self.abstraction, inputs, features)
+        return layer_losses
 
-    def _get_trained_variables(self, saving: bool = False):
-        # TODO: for saving=False we should return optimizer here if we want to make
-        # the finetuning API work, I think
+    def _get_trained_variables(self):
         return self.abstraction.state_dict()
 
     def _set_trained_variables(self, variables):

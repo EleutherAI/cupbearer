@@ -13,28 +13,24 @@ class SpectralSignatureDetector(ActivationCovarianceBasedDetector):
     """
 
     use_trusted: bool = False
+    use_untrusted: bool = True
 
     def post_covariance_training(self, **kwargs):
         # Calculate top right singular vectors from covariance matrices
         self.top_singular_vectors = {
             k: torch.linalg.eigh(cov).eigenvectors[:, -1]
-            for k, cov in self.covariances.items()
+            for k, cov in self.covariances["untrusted"].items()
         }
 
-    def layerwise_scores(self, batch):
+    def _individual_layerwise_score(self, name, activation):
         # ((R(x_i) - \hat{R}) * v) ** 2
-        _, activations = self.get_activations(batch)
-        outlier_scores = {
-            k: torch.einsum(
-                "bi,i->b",
-                (activations[k] - self.means[k]),
-                v,
-            ).square()
-            for k, v in self.top_singular_vectors.items()
-        }
-        return outlier_scores
+        return torch.einsum(
+            "bi,i->b",
+            (activation - self.means["untrusted"][name]),
+            self.top_singular_vectors[name],
+        ).square()
 
-    def _get_trained_variables(self, saving: bool = False):
+    def _get_trained_variables(self):
         return {"means": self.means, "top_singular_vectors": self.top_singular_vectors}
 
     def _set_trained_variables(self, variables):

@@ -1,7 +1,5 @@
 from typing import Optional
-
 import torch
-
 
 def update_covariance(curr_mean, curr_C, curr_n, new_data):
     # Should be (batch, dim)
@@ -38,65 +36,99 @@ def batch_covariance(batches):
 
 
 def mahalanobis(
-    activations: dict[str, torch.Tensor],
-    means: dict[str, torch.Tensor],
-    inv_covariances: dict[str, torch.Tensor],
-    inv_diag_covariances: Optional[dict[str, torch.Tensor]] = None,
-):
+    activation: torch.Tensor,
+    mean: torch.Tensor,
+    inv_covariance: torch.Tensor,
+    inv_diag_covariance: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     """Compute Simplified Relative Mahalanobis distances for a batch of activations.
 
     The Mahalanobis distance for each layer is computed,
     and the distances are then averaged over layers.
 
     Args:
-        activations: Dictionary of activations for each layer,
-            each element has shape (batch, dim)
-        means: Dictionary of means for each layer, each element has shape (dim,)
-        inv_covariances: Dictionary of inverse covariances for each layer,
-            each element has shape (dim, dim)
-        inv_diag_covariances: Dictionary of inverse diagonal covariances for each layer,
-            each element has shape (dim,).
-            If None, the usual Mahalanobis distance is computed instead of the
-            (simplified) relative Mahalanobis distance.
+        activation: values to compute distance for, with shape (batch, dim)
+        mean: mean of shape (dim,)
+        inv_covariance: inverse covariance matrix of shape (dim, dim)
+        inv_diag_covariance: Tensor of shape (dim,).
+            If None, the usual Mahalanobis distance is computed
+            instead of the simplified relative Mahalanobis distance.
 
     Returns:
-        Dictionary of Mahalanobis distances for each layer,
-        each element has shape (batch,).
+        Tensor of shape (batch,) with the Mahalanobis distances.
     """
-    distances: dict[str, torch.Tensor] = {}
-    for k, activation in activations.items():
-        batch_size = activation.shape[0]
-        activation = activation.view(batch_size, -1)
-        delta = activation - means[k]
-        assert delta.ndim == 2 and delta.shape[0] == batch_size
-        # Compute log likelihood under a Gaussian:
-        distance = torch.einsum("bi,ij,bj->b", delta, inv_covariances[k], delta)
-        if inv_diag_covariances is not None:
-            distance -= torch.einsum("bi,i->b", delta**2, inv_diag_covariances[k])
-        distances[k] = distance
-    return distances
+    batch_size = activation.shape[0]
+    activation = activation.view(batch_size, -1)
+    delta = activation - mean
+    assert delta.ndim == 2 and delta.shape[0] == batch_size
+    # Compute unnormalized negative log likelihood under a Gaussian:
+    distance = torch.einsum("bi,ij,bj->b", delta, inv_covariance, delta)
+    if inv_diag_covariance is not None:
+        distance -= torch.einsum("bi,i->b", delta**2, inv_diag_covariance)
+    return distance
 
+def mahalanobis_from_data(test_data, saved_data, relative=False):
+    saved_inv_diag_cov = None
+    saved_mean = saved_data.mean(dim=0)
+    cov = torch.cov(saved_data.T)
+    saved_inv_cov = torch.linalg.pinv(cov, 1.e-5)
+    if relative:
+        saved_inv_diag_cov = torch.where(torch.diag(cov) > 1.e-5, 1 / torch.diag(cov), 0)
+
+    return mahalanobis(test_data, saved_mean, saved_inv_cov, saved_inv_diag_cov)
 
 def quantum_entropy(
-    whitened_activations: dict[str, torch.Tensor],
+    whitened_activations: torch.Tensor,
+    untrusted_covariance: torch.Tensor,
+    covariance_norm: torch.Tensor,
     alpha: float = 4,
-) -> dict[str, torch.Tensor]:
-    """Quantum Entropy score per layer."""
-    distances: dict[str, torch.Tensor] = {}
-    for k, activation in whitened_activations.items():
-        activation = activation.flatten(start_dim=1)
+    batch_cov: Optional[torch.Tensor] = None
+) -> torch.Tensor:
+    """Quantum Entropy score.
 
-        # Compute QUE-score
-        centered_batch = activation - activation.mean(dim=0, keepdim=True)
-        batch_cov = centered_batch.mT @ centered_batch
+    Args:
+        whitened_activations: whitened activations, with shape (batch, dim)
+        untrusted_covariance: covariance matrix of shape (dim, dim)
+        covariance_norm: norm of the covariance matrix
+            (singleton tensor, passed just so it can be cached for speed)
+        alpha: QUE hyperparameter
+    """
+    # Compute QUE-score
+    exp_factor = torch.matrix_exp(alpha * untrusted_covariance / covariance_norm)
 
-        batch_cov_norm = torch.linalg.eigvalsh(batch_cov).max()
-        exp_factor = torch.matrix_exp(alpha * batch_cov / batch_cov_norm)
+    res = torch.einsum(
+        "bi,ij,jb->b",
+        whitened_activations,
+        exp_factor,
+        whitened_activations.mT,
+    )
+    return res
 
-        distances[k] = torch.einsum(
-            "bi,ij,jb->b",
-            activation,
-            exp_factor,
-            activation.mT,
-        )
+
+def local_outlier_factor(
+        activations: torch.Tensor,
+        saved_activations: torch.Tensor,
+        k: int = 20
+) -> torch.Tensor:
+    """Local outlier factor"""
+
+    batch_size = len(activations)
+
+    full_activations = torch.cat([activations, saved_activations], dim=0)
+
+    epsilon = 0.0001
+    # Calculate pairwise squared Euclidean distances
+    test_dist = torch.cdist(full_activations, full_activations).fill_diagonal_(torch.inf) + epsilon
+    test_distances, indices = test_dist.topk(k, largest=False)
+
+    # Calculate reachability distances
+    k_dists = test_distances[:, -1, None].expand_as(test_distances)
+    lrd = torch.max(test_distances, k_dists).mean(dim=1).reciprocal()
+
+    # Assert finite valuesk
+    assert torch.isfinite(lrd).all()
+
+    lrd_ratios = lrd[indices] / lrd[:, None]
+    distances = (lrd_ratios.sum(dim=1) / k)[:batch_size]
+
     return distances

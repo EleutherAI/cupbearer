@@ -1,11 +1,14 @@
 import codecs
 import importlib
+import math
 import pickle
 from datetime import datetime
 from pathlib import Path
-from typing import Union
-
+from typing import Union, overload
 import torch
+
+from cupbearer.models import HuggingfaceLM
+from .get_activations import get_activations, get_activations_and_grads  # noqa: F401
 
 SUFFIX = ".pt"
 TYPE_PREFIX = "__TYPE__:"
@@ -28,6 +31,10 @@ def from_string(s):
     return s
 
 
+def tensor_to_tuple(tensor: torch.Tensor):
+    return tuple(tensor.cpu().numpy().flatten())
+
+
 def validate_and_convert_leaf(leaf):
     if isinstance(leaf, (str, int, float, bool, torch.Tensor)):
         return leaf
@@ -36,6 +43,7 @@ def validate_and_convert_leaf(leaf):
     if isinstance(leaf, type):
         return TYPE_PREFIX + leaf.__module__ + "." + leaf.__name__
 
+    # TODO (erik): is any of this still necessary? torch.save should handle this I think
     try:
         pickled = pickle.dumps(leaf)
     except Exception as e:
@@ -114,11 +122,22 @@ def get_object(path: str):
 
 def inputs_from_batch(batch):
     # batch may contain labels or other info, if so we strip it out
-    if isinstance(batch, (tuple, list)):
-        return batch[0]
+    if isinstance(batch, (tuple, list)) and not isinstance(batch[0], str):
+        result = batch[0]
     else:
-        return batch
-
+        result = batch
+    
+    # Ensure result is a tuple or list of strings
+    if isinstance(result, (str)):
+        return (result,)
+    if isinstance(result, torch.Tensor):
+        return result
+    elif isinstance(result, (tuple, list)) and all(isinstance(item, str) for item in result):
+        return result
+    elif isinstance(result, (tuple, list)) and len(result) > 0 and all(isinstance(item, (str, torch.Tensor)) for item in result[0]):
+        return result[0]
+    else:
+        raise ValueError("Expected a string or a sequence of strings")
 
 def log_path(base="logs", time=True):
     if time:
@@ -126,3 +145,46 @@ def log_path(base="logs", time=True):
     else:
         timestamp = datetime.now().strftime("%Y-%m-%d")
     return Path(base) / timestamp
+
+
+def _try_to_device(x, device):
+    if isinstance(x, torch.Tensor):
+        return x.to(device)
+    return x
+
+
+def inputs_to_device(batch, device):
+    return tree_map(lambda x: _try_to_device(x, device), batch)
+
+
+@overload
+def reduce_size(shape: int, size_reduction: int) -> int:
+    ...
+
+
+@overload
+def reduce_size(shape: tuple[int, ...], size_reduction: int) -> tuple[int, ...]:
+    ...
+
+
+def reduce_size(
+    shape: int | tuple[int, ...], size_reduction: int
+) -> int | tuple[int, ...]:
+    if isinstance(shape, int):
+        return math.ceil(shape / size_reduction)
+    return tuple(math.ceil(x / size_reduction) for x in shape)
+
+
+def flatten_last(x):
+    return torch.flatten(x, start_dim=1)
+
+def guess_device_dtype_from_model(model):
+    if isinstance(model, HuggingfaceLM):
+        dtype = model.hf_model.dtype
+        device = model.hf_model.device
+    elif isinstance(model, torch.nn.Module):
+        dtype = next(model.parameters()).dtype
+        device = next(model.parameters()).device
+    else:
+        raise ValueError(f"Unknown model type: {type(model)}")
+    return device, dtype

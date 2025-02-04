@@ -8,6 +8,7 @@ __pycache__
 /notebooks/data
 /logs
 /notebooks/logs
+/notebooks/results
 /slurm
 /notebooks/slurm
 /.venv
@@ -16,3 +17,17 @@ __pycache__
 /dist
 /build
 /misc
+.cupbearer_cache/
+.ruff_cache/
+lightning_logs/
+cache/
+mem_traces/
+models/
+notebooks/models/
+rename_results.sh
+notebooks/*.json
+*.json
+/visualizations/
+.test.txt.swp
+*.png
+*.csv

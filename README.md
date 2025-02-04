@@ -20,10 +20,8 @@ pip install git+https://github.com/ejnnr/cupbearer.git
 (You could also `pip install cupbearer`, but note that the library is under heavy
 development and the PyPi version will often be outdated.)
 
-Alternatively, if you're going to do development work on the library itself:
-1. Clone this git repository
-2. Create a virtual environment with Python 3.10 and activate it
-3. Run `pip install -e .` inside the git repo to install the package in editable mode
+Alternatively, if you're going to do development work on the library itself,
+see [the developer guide](docs/getting_started.md).
 
 ### Notes on Pytorch
 Depending on what platform you're on, you may need to install Pytorch separately *before*
@@ -48,3 +46,15 @@ Just like a cupbearer tastes wine to avoid poisoning the king, mechanistic anoma
 detection methods taste new inputs to check whether they're poisoned. (Or more generally,
 anomalous in terms of how they affect the king ... I mean, model. I admit the analogy
 is becoming a bit strained here.)
+
+## Quirky language models
+
+The quirky language models task uses [quirky datasets](https://arxiv.org/abs/2312.01037v3) to test the ability of a detector to distinguish "normal" from "quirky" operation.
+
+Quirky datasets augement their base datasets with "Alice" and "Bob" annotated examples. "Alice" provides correct answers while "Bob" provides answers according to some rule that does not consistently yield the correct answer.
+
+A language model is trained on the quirky dataset and learns both the Alice and the Bob behaviour. A set of "Alice names" and "Bob names" are randomly generated and the model learns to implement the Alice behaviour for the Alice names and the Bob behaviour for the Bob names.
+
+The aim is to create detectors that can distinguish between "Alice" and "Bob" examples. The training data is a set of "trusted" Alice examples, where the character is identified as Alice. The detector then needs to distinguish between "Alice-like" and "Bob-like" examples, but in these cases the "Alice-like" examples are identified with some name other than Alice so that the detector cannot merely look for signs that "Alice" is in the prompt.
+
+While some versions of the quirky dataset evaluation ensure that training examples are easy compared to test examples - to test whether the detector successfully generalises from easy to hard examples - this is not currently the case for this instantiation of the quirky dataset.

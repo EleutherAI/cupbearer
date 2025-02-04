@@ -26,12 +26,15 @@ class MixedData(Dataset):
         normal: Dataset,
         anomalous: Dataset,
         normal_weight: Optional[float] = 0.5,
-        return_anomaly_labels: bool = True,
+        return_labels: list = []
     ):
         self.normal_data = normal
         self.anomalous_data = anomalous
         self.normal_weight = normal_weight
-        self.return_anomaly_labels = return_anomaly_labels
+        self.return_labels = return_labels
+
+
+
         if normal_weight is None:
             self.normal_len = len(normal)
             self.anomalous_len = len(anomalous)
@@ -44,15 +47,43 @@ class MixedData(Dataset):
             self.normal_len = int(self._length * normal_weight)
             self.anomalous_len = self._length - self.normal_len
 
+    def get_labels(self, example, anomaly_indicator):
+        labels = []
+        if 'answer' in self.return_labels:
+            labels.append((example['alice_label'], example['bob_label'])[anomaly_indicator])
+        if 'anomaly' in self.return_labels:
+            labels.append(anomaly_indicator)
+        if 'agreement' in self.return_labels:
+            labels.append(example['alice_label'] == example['bob_label'])
+        return tuple(labels)
+
+
     def __len__(self):
         return self._length
 
     def __getitem__(self, index):
-        if index < self.normal_len:
-            if self.return_anomaly_labels:
-                return self.normal_data[index], 0
-            return self.normal_data[index]
+        # Important to check this because we might have "virtually" limited the dataset.
+        # I.e. self.anomalous_data might in fact have more samples than
+        # self.anomalous_len.
+        if index >= self._length:
+            raise IndexError(
+                f"Index {index} out of bounds for dataset of length {self._length}"
+            )
+        if hasattr(self.normal_data, 'hf_dataset'):
+            if index < self.normal_len:
+                if len(self.return_labels) > 0:
+                    return self.normal_data[index], self.get_labels(self.normal_data.hf_dataset[index], 0)
+                return self.normal_data[index]
+            else:
+                if len(self.return_labels) > 0:
+                    return self.anomalous_data[index - self.normal_len], self.get_labels(self.anomalous_data.hf_dataset[index - self.normal_len], 1)
+                return self.anomalous_data[index - self.normal_len]
         else:
-            if self.return_anomaly_labels:
-                return self.anomalous_data[index - self.normal_len], 1
-            return self.anomalous_data[index - self.normal_len]
+            if index < self.normal_len:
+                if 'anomaly' in self.return_labels:
+                    return self.normal_data[index], (0, 0)
+                return self.normal_data[index]
+            else:
+                if 'anomaly' in self.return_labels:
+                    return self.anomalous_data[index - self.normal_len], (1, 0)
+                return self.anomalous_data[index - self.normal_len]
