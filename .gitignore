@@ -29,3 +29,5 @@ notebooks/*.json
 *.json
 /visualizations/
 .test.txt.swp
+*.png
+*.csv

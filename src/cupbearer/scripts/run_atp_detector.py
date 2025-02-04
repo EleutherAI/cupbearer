@@ -5,8 +5,8 @@ import os
 import torch
 
 from cupbearer import tasks, scripts
-from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector, UMAPMahalanobisDetector, UMAPLOFDetector, LaplaceDetector
-from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor, NFlowExtractor
+from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector, UMAPMahalanobisDetector, UMAPLOFDetector, LaplaceDetector, ScaledMeanDifferenceDetector
+from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor, NFlowExtractor, SaeExtractor
 from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task, concat_to_single_layer
 from cupbearer.detectors.extractors.core import FeatureCache
 import gc
@@ -39,10 +39,11 @@ def main(
     layerwise=True,
     concat=False,
     mlp_out=False,
-    base_model='Mistral-7B-v0.1'
+    base_model='Mistral-7B-v0.1',
+    sae_model='EleutherAI/sae-llama-3.1-8b-64x',
+    n_layers=9
 ):
-    n_layers = 8
-    interval = max(1, (last_layer - first_layer) // n_layers)
+    interval = max(1, (last_layer - first_layer) // (n_layers - 1))
     layers = list(range(first_layer, last_layer + 1, interval))
 
     task = tasks.quirky_lm(
@@ -81,7 +82,7 @@ def main(
     if mlp_out:
         layer_list = [f"hf_model.model.layers.{layer}.mlp" for layer in layers]
     else:
-        layer_list = [f"hf_model.model.layers.{layer}.input_layernorm.input" for layer in layers]
+        layer_list = [f"hf_model.model.layers.{layer}.self_attn.o_proj.input" for layer in layers]
     feature_groups = {k: [] for k in layer_list}
 
     for feature in features:
@@ -171,6 +172,26 @@ def main(
                 global_processing_fn=global_processing_function
             ))
 
+        elif feature == 'sae':
+            score = 'scaled_mean_diff'
+
+            sae_layer_list = [f"hf_model.model.layers.{layer}.input_layernorm.input" for layer in layers]
+            sae_hookpoint_type = "mlp" if mlp_out else "residual"
+            extractors.append(SaeExtractor(
+                layers=layers,
+                names=sae_layer_list,
+                hookpoint_type=sae_hookpoint_type,
+                sae_model=sae_model,
+                individual_processing_fn=activation_processing_function,
+                global_processing_fn=global_processing_function
+            ))
+            
+            for layer, key in zip(layers, extractors[-1].names):
+                if key not in feature_groups:
+                    feature_groups[key] = [key]
+                else:
+                    feature_groups[key].append(key)
+
     if concat:
         for ex in extractors:
             ex.feature_names = ['all']
@@ -194,6 +215,8 @@ def main(
             detector = LOFDetector(feature_extractor)
     elif score == 'laplace':
         detector = LaplaceDetector(feature_extractor)
+    elif score == 'scaled_mean_diff':
+        detector = ScaledMeanDifferenceDetector(feature_extractor)
     else:
         raise ValueError(f"Unknown score: {score}")
     detector.set_model(task.model)
@@ -203,6 +226,9 @@ def main(
     if dataset in ['sciq', 'sentiment']:
         batch_size = 2
         eval_batch_size = 2
+    if 'sae' in features:
+        batch_size = 1
+        eval_batch_size = 1
 
     save_path = f"logs/quirky/{dataset}-{score}-{'_'.join(features)}-{base_model}-{model_name}-{first_layer}-{last_layer}-{ablation}"
 
@@ -211,6 +237,7 @@ def main(
 
     if not layerwise:
         save_path += "/all"
+
 
     if Path(save_path).exists():
         if 'detector.pt' in os.listdir(save_path):
@@ -246,12 +273,14 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='all', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
-    parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe', 'nflow'], help='Features to use')
-    parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof', 'laplace'], help='Score to use')
+    parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe', 'nflow', 'sae'], help='Features to use')
+    parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof', 'laplace', 'scaled_mean_diff'], help='Score to use')
     parser.add_argument('--concat', action='store_true', default=False, help='Concatenate features across layers')
     parser.add_argument('--umap', action='store_true', default=False, help='Use UMAP instead of Mahalanobis')
     parser.add_argument('--mlp_out', action='store_true', default=False, help='Use MLP output instead of input')
     parser.add_argument('--base_model', type=str, choices=['Mistral-7B-v0.1', 'Meta-Llama-3.1-8B', 'Meta-Llama-3-8B'], help='Base model to use')
+    parser.add_argument('--sae_model', type=str, default='EleutherAI/sae-llama-3.1-8b-64x', help='SAE model to use')
+    parser.add_argument('--n_layers', type=int, default=9, help='Number of layers to use')
 
     args = parser.parse_args()
 
@@ -269,7 +298,9 @@ if __name__ == '__main__':
                 layerwise=args.layerwise,
                 concat=args.concat,
                 mlp_out=args.mlp_out,
-                base_model=args.base_model  # Add this line
+                base_model=args.base_model,
+                sae_model=args.sae_model,
+                n_layers=args.n_layers
             )
     else:
         main(
@@ -284,5 +315,7 @@ if __name__ == '__main__':
             layerwise=args.layerwise,
             concat=args.concat,
             mlp_out=args.mlp_out,
-            base_model=args.base_model  # Add this line
+            base_model=args.base_model,
+            sae_model=args.sae_model,
+            n_layers=args.n_layers
         )
