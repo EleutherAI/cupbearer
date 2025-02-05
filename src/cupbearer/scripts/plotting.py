@@ -62,11 +62,18 @@ def plot_auc_roc_by_layer_by_score(df: pd.DataFrame, multilayer: bool = True, di
         df["score"] = df["score"].cat.remove_unused_categories()
         df["title"] = df["score"].astype(str) + " " + title_format
         df = df.sort_values(by=["dataset", "layer", "base_model"])
+        
         g = (so.Plot(df, x="layer", y=y_col, color="dataset", marker="dataset")
              .facet(col="score", wrap=3)
              .add(so.Line(), so.Agg(), so.Jitter(x=2))
              .label(x="Layer", y=metrics_dict[y_col], title=title_format.format)
              .theme({"figure.figsize": (12, 4 * (len(df["score"].unique()) + 3) // 3)}))
+        
+        # Save the plot using seaborn.objects
+        plot_dir = ensure_plot_dir("auc_layer")
+        filename = f"auc_layer_{'multilayer' if multilayer else 'single'}_{'disagree' if disagree else 'all'}.png"
+        g.save(os.path.join(plot_dir, filename), bbox_inches='tight', dpi=300)
+        return g
     else:
         df = df[df["layer"] < 0]
         df["score"] = df["score"].cat.remove_unused_categories()
@@ -187,12 +194,14 @@ def create_tables(type_: str = "online") -> pd.DataFrame:
     os.makedirs("results", exist_ok=True)
     for dataset in df["dataset"].unique():
         dataset_df = df_all[df_all["dataset"] == dataset].drop(columns="dataset")
-        mean_scores = dataset_df.groupby(["score", "features"]).agg(np.nanmean)[["auc_roc", "auc_roc_agree", "auc_roc_disagree"]].dropna()
+        if len(dataset_df) == 0:
+            continue
+        mean_scores = dataset_df.groupby(["score", "features"])[["auc_roc", "auc_roc_agree", "auc_roc_disagree"]].mean()
         aggregated_scores = dataset_df.loc[dataset_df["layer"] == -1, ["score", "features", "auc_roc", "auc_roc_agree", "auc_roc_disagree"]].dropna()
         aggregated_scores.columns = ["score", "features", "aggregated_auc_roc", "aggregated_auc_roc_agree", "aggregated_auc_roc_disagree"]
         mean_scores.columns = ["mean_auc_roc", "mean_auc_roc_agree", "mean_auc_roc_disagree"]
         combined_scores = mean_scores.join(best_layer_scores.loc[best_layer_scores["dataset"] == dataset, ["best_auc_roc", "best_auc_roc_agree", "best_auc_roc_disagree"]])
-        combined_scores = combined_scores.join(aggregated_scores.groupby(["score", "features"]).agg(np.nanmean)[["aggregated_auc_roc", "aggregated_auc_roc_agree", "aggregated_auc_roc_disagree"]])
+        combined_scores = combined_scores.join(aggregated_scores.groupby(["score", "features"])[["aggregated_auc_roc", "aggregated_auc_roc_agree", "aggregated_auc_roc_disagree"]].mean())
         table = combined_scores.reset_index()
         table["best_layer"] = table.apply(lambda row: best_layers.loc[row["score"], row["features"]], axis=1)
         table["best_layer"] = table["best_layer"].astype(str).replace("-1", "aggregate")
@@ -204,7 +213,8 @@ def create_tables(type_: str = "online") -> pd.DataFrame:
         for col in columns[2:-1]:
             table[col] = bold_max(table[col])
         markdown_table = table[columns].to_markdown(tablefmt="github", index=False)
-        with open(os.path.join("results", "tables", f"{dataset}_{type_}_results.md"), "w") as f:
+        tables_dir = ensure_plot_dir("tables")
+        with open(os.path.join(tables_dir, f"{dataset}_{type_}_results.md"), "w") as f:
             f.write(markdown_table)
     overall_mean = df_all[df_all["layer"] == -1].groupby(["features", "score"]).agg({
         "auc_roc": "mean",
@@ -215,7 +225,8 @@ def create_tables(type_: str = "online") -> pd.DataFrame:
     for col in ["mean_auc_roc", "mean_auc_roc_agree", "mean_auc_roc_disagree"]:
         overall_mean[col] = bold_max(overall_mean[col])
     overall_mean_table = overall_mean.to_markdown(tablefmt="github", index=False)
-    with open(os.path.join("results", "tables", f"overall_{type_}_results.md"), "w") as f:
+    tables_dir = ensure_plot_dir("tables")
+    with open(os.path.join(tables_dir, f"overall_{type_}_results.md"), "w") as f:
         f.write(f"\n\n## Overall Aggregated AUROC by Score and Feature: {type_}\n\n")
         f.write(overall_mean_table)
     return df_all 
