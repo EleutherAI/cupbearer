@@ -31,3 +31,4 @@ notebooks/*.json
 .test.txt.swp
 *.png
 *.csv
+*.md
