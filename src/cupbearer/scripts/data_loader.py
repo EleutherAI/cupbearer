@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pandas as pd
 from typing import Tuple, Callable, List, Dict, Any
-from cupbearer.scripts.config import LOGS_DIR, MART_LOGS_DIR, ONLINE_SCORE_ORDER, BASE_MODEL_DICT
+from cupbearer.scripts.config import LOGS_DIR, MART_LOGS_DIR, ONLINE_SCORE_ORDER, BASE_MODEL_DICT, BASE_DIR
 from cupbearer.scripts.utils import safe_logprob_to_logit, get_basename_or_parent, get_layer
 
 import logging
@@ -13,12 +13,14 @@ logger = logging.getLogger(__name__)
 FilterFunc = Callable[[str, List[str], List[str]], bool]
 
 filters: Dict[str, FilterFunc] = {
-    "rand_vs_nonrand": lambda root, dirs, files: "eval.json" in files and 
-         "probe_trajectory" in get_basename_or_parent(root) and 
-         ("-rand_retrain" in get_basename_or_parent(root) or "nrand_retrain2" in get_basename_or_parent(root) or "--" in get_basename_or_parent(root)),
+    "rand_vs_nonrand": lambda root, dirs, files: "eval.json" in files and len(get_basename_or_parent(root).split("-")) > 4 and 
+         "mahalanobis-activations" in get_basename_or_parent(root) and 
+         ("nrand" in get_basename_or_parent(root) or "--" in get_basename_or_parent(root)) and
+         ("Meta" not in root),
     "layerwise_activations": lambda root, dirs, files: "eval.json" in files and len(get_basename_or_parent(root).split("-")) > 4 and "activations" in get_basename_or_parent(root),
     "layerwise_agnostic": lambda root, dirs, files: "eval.json" in files and len(get_basename_or_parent(root).split("-")) > 4 and 
-         ("activations" in root or "iterative_rephrase" in root or "attribution" in root or "probe" in root or "misconception" in root or "nflow" in root or "sae" in root),
+         ("activations" in root or "iterative_rephrase" in root or "attribution" in root or "probe" in root or "misconception" in root or "nflow" in root or "sae" in root) and
+         ("nonrand" not in root),
     "none": lambda root, dirs, files: "eval.json" in files
 }
 
@@ -67,13 +69,17 @@ def parse_filepath(root: str) -> Dict[str, Any]:
         score += "-ensemble"
     if "cifar10" in root and len(name_parts) > 3:
         score += f"\n{name_parts[3]}"
-    if "mlp_out" in root:
+    if ("mlp_out" in root) or ("mlpout" in root):
         score += "-mlp_out"
     if "sae" in root:
         if "scaled_mean_diff" in root:
             score = "sae-diag-mahalanobis"
         if "l0" in root:
             score = "sae-l0"
+    if "-em" in root:
+        score = "expectation-maximization"
+    if "likelihood" in root:
+        score = "likelihood-ratio"
     base_model = "mistral" if "Meta" not in root else "meta"
     score = f"{base_model}-{score}"
     return {
@@ -86,7 +92,7 @@ def parse_filepath(root: str) -> Dict[str, Any]:
     }
 
 def get_data(filter_fn: FilterFunc, train_from_test: bool = False, log_dir: str = LOGS_DIR,
-             score_order: List[str] = ONLINE_SCORE_ORDER) -> Tuple[pd.DataFrame, pd.DataFrame]:
+             score_order: List[str] = ONLINE_SCORE_ORDER, include_all_datasets: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Load main evaluation data by walking through directories in log_dir,
     parsing filenames with parse_filepath(), and merging with additional accuracy data.
@@ -100,6 +106,9 @@ def get_data(filter_fn: FilterFunc, train_from_test: bool = False, log_dir: str 
             main_eval_path = os.path.join(root, "eval.json")
             with open(main_eval_path, "r") as f:
                 main_eval = json.load(f)
+            # If main_eval is flat (i.e. a dict with metric keys), wrap it in a default layer.
+            if isinstance(main_eval, dict) and "AUC_ROC" in main_eval:
+                main_eval = {"default": main_eval}
             # Exclude certain directories based on content in root
             if "probe" in root and ("Mistral" not in root and "Meta" not in root):
                 continue
@@ -115,6 +124,10 @@ def get_data(filter_fn: FilterFunc, train_from_test: bool = False, log_dir: str 
             rand = file_info["random_names"]
             base_model = file_info["base_model"]
 
+            if (features == 'activations') and ('mahalanobis' in score) and (base_model == "mistral"):
+                if ('--' not in root) and ('rc3' not in root):
+                    continue
+
             for key, value in main_eval.items():
                 layer = get_layer(key)
                 results.append({
@@ -125,8 +138,8 @@ def get_data(filter_fn: FilterFunc, train_from_test: bool = False, log_dir: str 
                     "layer": layer,
                     "random_names": rand,
                     "auc_roc": value["AUC_ROC"],
-                    "auc_roc_agree": value["AUC_ROC_AGREE"],
-                    "auc_roc_disagree": value["AUC_ROC_DISAGREE"],
+                    "auc_roc_agree": value.get("AUC_ROC_AGREE", np.nan),
+                    "auc_roc_disagree": value.get("AUC_ROC_DISAGREE", np.nan),
                     "base_model": base_model
                 })
 
@@ -173,8 +186,36 @@ def get_data(filter_fn: FilterFunc, train_from_test: bool = False, log_dir: str 
         "quirky_coefficient": lambda x: np.nanmean(x),
     }).reset_index()
     df = df.merge(accdf_grouped, on=["dataset", "base_model"], how="left")
-    dataset_order = ["population", "nli", "sentiment", "hemisphere", "addition", "subtraction",
-                     "multiplication", "modularaddition", "squaring"]
+
+    # Order the datasets
+    if include_all_datasets:
+        dataset_order = [
+            'capitals',
+            'authors',
+            'population', 
+            'nli', 
+            'sciq', 
+            'sentiment',  
+            'hemisphere',  
+            'addition', 
+            'subtraction', 
+            'multiplication', 
+            'modularaddition', 
+            'squaring'
+        ]
+    else:
+        dataset_order = [
+            'population', 
+            'nli', 
+            'sciq', 
+            'sentiment',  
+            'hemisphere',  
+            'addition', 
+            'subtraction', 
+            'multiplication', 
+            'modularaddition', 
+            'squaring'
+        ]
     base_model_order = ["mistral", "meta"]
     df["score"] = pd.Categorical(df["score"], categories=score_order, ordered=True)
     df["dataset"] = pd.Categorical(df["dataset"], categories=dataset_order, ordered=True)
@@ -182,7 +223,7 @@ def get_data(filter_fn: FilterFunc, train_from_test: bool = False, log_dir: str 
     df.drop_duplicates(subset=["dataset", "score", "layer", "base_model"], inplace=True)
     variance_dfs = []
     for base_model, model_name in BASE_MODEL_DICT.items():
-        variance_file = os.path.join("..", "plots", "variances", model_name, "variance_ratios.csv")
+        variance_file = os.path.join(BASE_DIR, 'plots', 'variances', model_name, "variance_ratios.csv")
         if os.path.exists(variance_file):
             var_df = pd.read_csv(variance_file)
             var_df["base_model"] = base_model

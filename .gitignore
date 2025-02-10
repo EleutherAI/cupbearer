@@ -32,3 +32,4 @@ notebooks/*.json
 *.png
 *.csv
 *.md
+*.pdf

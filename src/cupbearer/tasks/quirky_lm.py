@@ -32,8 +32,6 @@ def quirky_lm(
     # Load model and data
     ########################
 
-    mixture_str = "mixture" if mixture else "fixed"
-    name_str = "multiname" if random_names else "singlename"
     model_name = f"EleutherAI/{base_model}-{dataset}-random"
     if base_model == 'Meta-Llama-3-8B':
         base_model_name = 'meta-llama/Meta-Llama-3-8B'
