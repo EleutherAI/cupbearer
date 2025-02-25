@@ -7,3 +7,4 @@ from .isoforest_detector import IsoForestDetector
 from .lof_detector import LOFDetector, UMAPLOFDetector
 from .laplace_detector import LaplaceDetector
 from .scaled_mean_difference_detector import ScaledMeanDifferenceDetector
+from .identity_detector import IdentityDetector

@@ -26,12 +26,12 @@ plt.rcParams.update({
 sns.set_theme(style="whitegrid", font="serif", rc={"text.usetex": True})
 
 metrics_dict = {
-    "auc_roc": "Alice vs Bob AUC",
-    "auc_roc_agree": "Alice vs Bob AUC (Agree)",
-    "auc_roc_disagree": "Alice vs Bob AUC (Disagree)",
-    "auc_roc_train_from_test_all": "Train names vs Test names AUC",
-    "auc_roc_train_from_test_agree": "Train names vs Test names AUC (Agree)",
-    "auc_roc_train_from_test_disagree": "Train names vs Test names AUC (Disagree)"
+    "auc_roc": "AUROC",
+    "auc_roc_agree": "AUROC (Agree)",
+    "auc_roc_disagree": "AUROC (Disagree)",
+    "auc_roc_train_from_test_all": "AUROC (Train vs Test)",
+    "auc_roc_train_from_test_agree": "AUROC (Train vs Test) (Agree)",
+    "auc_roc_train_from_test_disagree": "AUROC (Train vs Test) (Disagree)"
 }
 
 def ensure_plot_dir(plot_type: str) -> str:
@@ -63,12 +63,12 @@ def barplot_by_dataset(df: pd.DataFrame, compare: str = "random_names", disagree
         })
     
     grouped_df = df.groupby(["dataset", compare])[y_col].mean().reset_index().sort_values(by="dataset", ascending=True)
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 8))
     sns.barplot(x="dataset", y=y_col, hue=compare, data=grouped_df)
-    plt.title(title)
+    plt.title(title, fontsize = 45)
     plt.xlabel("Dataset", fontsize=33)
     plt.ylabel("Alice vs Bob AUC", fontsize=33)
-    plt.legend(title=compare_title, fontsize=30, title_fontsize=30)
+    plt.legend(title=compare_title, fontsize=25, title_fontsize=25, loc='lower right')
     plt.xticks(rotation=45, fontsize=30)
     plt.yticks(fontsize=30)
     plt.tight_layout()
@@ -86,7 +86,7 @@ def plot_auc_roc_by_layer_by_score(df: pd.DataFrame, multilayer: bool = True, di
     df["layer"] = df["layer"].astype(int)
     df = df[df["score"].isin(SCORE_ORDER)]
     y_col = "auc_roc_disagree" if disagree else "auc_roc"
-    title_format = "{} (disagree only)" if disagree else "{} (all examples)"
+    title_format = "{}"#"{} (disagree only)" if disagree else "{} (all examples)"
     if multilayer:
         df = df[df["layer"] >= 0]
         df["score"] = df["score"].cat.remove_unused_categories()
@@ -97,9 +97,16 @@ def plot_auc_roc_by_layer_by_score(df: pd.DataFrame, multilayer: bool = True, di
              .facet(col="score", wrap=3)
              .add(so.Line(), so.Agg(), so.Jitter(x=2))
              .label(x="Layer", y=metrics_dict[y_col], title=title_format.format)
-             .theme({"figure.figsize": (12, 4 * (len(df["score"].unique()) + 3) // 3)}))
+             .theme({
+                 "figure.figsize": (12, 3 * (len(df["score"].unique()) + 3) // 4),
+                 "axes.labelsize": 18,
+                 "axes.titlesize": 18,
+                 "xtick.labelsize": 15,
+                 "ytick.labelsize": 15,
+                 "legend.fontsize": 15,
+                 "legend.title_fontsize": 15,
+             }))
         
-        # Save the plot using seaborn.objects
         plot_dir = ensure_plot_dir("auc_layer")
         filename = f"auc_layer_{'multilayer' if multilayer else 'single'}_{'disagree' if disagree else 'all'}_{type}.pdf"
         g.save(os.path.join(plot_dir, filename), bbox_inches='tight', dpi=300)
@@ -280,10 +287,11 @@ def create_tables(type_: str = "online") -> pd.DataFrame:
     
     # Create separate aggregations for each base model
     def model_agg(df, model):
-        return df[df["base_model"] == model].groupby(["dataset"]).agg({
+        res = df[df["base_model"] == model].groupby(["dataset"]).agg({
             "auc_roc": ["mean", "max"],
             "score": "nunique"
         }).reset_index()
+        return res
     
     mistral_scores = model_agg(dataset_scores, "mistral")
     meta_scores = model_agg(dataset_scores, "meta")
@@ -319,7 +327,7 @@ def plot_scatter_variance(df: pd.DataFrame) -> None:
     }, inplace=True)
     plt.figure(figsize=(12, 8))
     sns.scatterplot(data=filtered_df, x="between-class variance/total variance", y="auc_roc",
-                    hue="Model", style="Dataset", sizes=(20, 200), alpha=0.7)
+                    hue="Model", style="Dataset", s=100, alpha=0.7)
     plt.xscale("log")
     plt.xlabel("Between-class variance/total variance (log scale)", fontsize=33)
     plt.ylabel("AUC-ROC", fontsize=33)
@@ -417,17 +425,16 @@ def plot_all_trusted_test_label_balance() -> None:
     width = 0.2  # narrower bars to fit 4 bars per dataset
     
     plt.figure(figsize=(12, 8))
-    plt.bar(x - 1.5*width, alice_trusted_percents, width, label="Alice low difficulty (percent true)")
-    plt.bar(x - 0.5*width, bob_trusted_percents, width, label="Bob low difficulty (percent true)")
-    plt.bar(x + 0.5*width, alice_test_percents, width, label="Alice high difficulty (percent true)")
-    plt.bar(x + 1.5*width, bob_test_percents, width, label="Bob high difficulty (percent true)")
+    plt.bar(x - 1.5*width, alice_trusted_percents, width, label="Alice easy")
+    plt.bar(x - 0.5*width, bob_trusted_percents, width, label="Bob easy")
+    plt.bar(x + 0.5*width, alice_test_percents, width, label="Alice hard")
+    plt.bar(x + 1.5*width, bob_test_percents, width, label="Bob hard")
     
-    plt.ylabel("Percentage of ``True'' Labels", fontsize=22)
-    plt.xlabel("Dataset", fontsize=22)
-    plt.title("Label Balance: Trusted vs Test Data", fontsize=22, pad=20)
-    plt.xticks(x, dataset_names, rotation=45, ha='right', fontsize=20)
-    plt.yticks(fontsize=20)
-    plt.legend(fontsize=20, loc='upper right')
+    plt.ylabel("Percentage of ``True'' Labels", fontsize=33)
+    plt.title("Label Balance: Trusted vs Test Data", fontsize=33, pad=20)
+    plt.xticks(x, dataset_names, rotation=45, ha='right', fontsize=30)
+    plt.yticks(fontsize=30)
+    plt.legend(fontsize=25, loc='upper right')
     plt.grid(True, axis='y', alpha=0.3)
     plt.tight_layout()
     
@@ -532,11 +539,6 @@ def plot_score_correlations(df: pd.DataFrame, score1: str, score2: str) -> None:
 def plot_quirky_coefficient(df: pd.DataFrame) -> None:
     """
     Plot quirky coefficient analysis showing how it relates to model behavior.
-    
-    Args:
-        df: DataFrame containing the evaluation results
-        accuracy_df: DataFrame containing accuracy and quirky coefficient data
-        include_all_datasets: If True, include all datasets including capitals and authors
     """
     # Filter for mahalanobis scores
     df = df[df['score'].astype(str).str.contains("activations-mahalanobis")]
@@ -550,77 +552,65 @@ def plot_quirky_coefficient(df: pd.DataFrame) -> None:
     # Prepare the data
     plot_df = df.groupby(['dataset', 'base_model'])['quirky_coefficient'].mean().reset_index()
     plot_df.dropna(inplace=True)
-    # Filter for datasets where both base models have quirky coefficients
     datasets_with_both = plot_df.groupby('dataset').size()
     datasets_with_both = datasets_with_both[datasets_with_both == 2].index
     plot_df = plot_df[plot_df['dataset'].isin(datasets_with_both)]
     
-    # Create figure with two subplots
-    fig, ax1 = plt.subplots(1, 1, figsize=(20, 8))
-
-    # Plot 1: Quirky coefficient by dataset and model
+    # Plot 1: Bar plot
+    plt.figure(figsize=(20, 8))
     sns.barplot(
         data=plot_df,
         x='dataset',
         y='quirky_coefficient',
-        hue='base_model',
-        ax=ax1
+        hue='base_model'
     )
-    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha='right')
-    ax1.set_title('Quirky Coefficient by Dataset and Model')
-    ax1.set_xlabel('Dataset')
-    ax1.set_ylabel('Quirky Coefficient')
+    plt.xticks(rotation=45, ha='right', fontsize=30)
+    plt.yticks(fontsize=30)
+    plt.xlabel('Dataset', fontsize=33)
+    plt.ylabel('Quirky Coefficient', fontsize=33)
+    plt.title('Quirky Coefficient by Dataset and Model', fontsize=45)
+    plt.legend(fontsize=30, title_fontsize=33)
+    plt.tight_layout()
 
     plot_dir = ensure_plot_dir("quirky_coefficient")
-    filename = "quirky_coefficient_by_dataset_and_model.pdf"
-    plt.savefig(os.path.join(plot_dir, filename), bbox_inches='tight', dpi=300)
+    plt.savefig(os.path.join(plot_dir, "quirky_coefficient_by_dataset.pdf"), bbox_inches='tight', dpi=300)
     plt.close()
     
-    fig, (ax2, ax3) = plt.subplots(1, 2, figsize=(20, 8), sharey=True)
-    
-    sns.scatterplot(
-        data=df[df['base_model']=='mistral'],
-        x='quirky_coefficient',
-        y='auc_roc',
-        style='dataset',
-        s=100,
-        ax=ax2
-    )
-    ax2.set_title('AUC-ROC vs Quirky Coefficient (Mistral)')
-    ax2.set_xlabel('Quirkiness')
-    ax2.set_ylabel('AUC-ROC')
-
-    sns.scatterplot(
-        data=df[df['base_model']=='meta'],
-        x='quirky_coefficient',
-        y='auc_roc',
-        style='dataset',
-        s=100,
-        ax=ax3
-    )
-    
-    ax3.set_title('AUC-ROC vs Quirky Coefficient (Llama)')
-    ax3.set_xlabel('Quirkiness')
-
-
-    for ax, model in zip([ax2, ax3], ['mistral', 'meta']):
-        corr_df = df[df['base_model']==model]
-        corr_df = corr_df[~pd.isna(corr_df['quirky_coefficient'])]
+    # Plot correlation plots separately for each model
+    for model, title in [('mistral', 'Mistral'), ('meta', 'Llama')]:
+        plt.figure(figsize=(12, 8))
+        model_df = df[df['base_model']==model]
+        
+        sns.scatterplot(
+            data=model_df,
+            x='quirky_coefficient',
+            y='auc_roc',
+            style='dataset',
+            s=100
+        )
+        plt.title(f'AUC-ROC vs Quirky Coefficient\n({title})', fontsize=45)
+        plt.xlabel('Quirkiness', fontsize=33)
+        plt.ylabel('AUC-ROC', fontsize=33)
+        plt.xticks(fontsize=30)
+        plt.yticks(fontsize=30)
+        
         # Add correlation line
+        corr_df = model_df[~pd.isna(model_df['quirky_coefficient'])]
         z = np.polyfit(corr_df['quirky_coefficient'], corr_df['auc_roc'], 1)
         p = np.poly1d(z)
         x_range = np.linspace(corr_df['quirky_coefficient'].min(), corr_df['quirky_coefficient'].max(), 100)
-        ax.plot(x_range, p(x_range), "r--", alpha=0.8)
+        plt.plot(x_range, p(x_range), "r--", alpha=0.8)
         
-        # Calculate correlation
+        # Add correlation text
         corr = corr_df['quirky_coefficient'].corr(corr_df['auc_roc'])
-        ax.text(0.05, 0.95, f'Correlation: {corr:.3f}', 
-                transform=ax.transAxes, fontsize=12)
-    
-    plt.tight_layout()
-    
-    # Save plot
-    plot_dir = ensure_plot_dir("quirky_coefficient")
-    filename = "quirky_coefficient_analysis.pdf"
-    plt.savefig(os.path.join(plot_dir, filename), bbox_inches='tight', dpi=300)
-    plt.close()
+        plt.text(0.05, 0.95, f'Correlation: {corr:.3f}', 
+                transform=plt.gca().transAxes, fontsize=30)
+        
+        if model == 'meta':
+            plt.legend(fontsize=15, title_fontsize=15, loc='lower right')
+        plt.tight_layout()
+        
+        # Save model-specific plot
+        plot_dir = ensure_plot_dir("quirky_coefficient")
+        plt.savefig(os.path.join(plot_dir, f"quirky_coefficient_correlation_{model}.pdf"), bbox_inches='tight', dpi=300)
+        plt.close()

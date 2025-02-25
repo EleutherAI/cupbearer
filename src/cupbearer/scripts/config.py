@@ -17,7 +17,8 @@ SCORE_ORDER_BASE: List[str] = [
     "expectation-maximization",
     "likelihood-ratio",
     "rephrase",
-    "misconception"
+    "misconception",
+    "basin-volume"
 ]
 
 SCORE_ORDER: List[str] = ['mistral-' + s for s in SCORE_ORDER_BASE] + ['meta-' + s for s in SCORE_ORDER_BASE]

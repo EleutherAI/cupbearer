@@ -11,3 +11,4 @@ from .statistical import (
 )
 from .supervised_probe import SupervisedLinearProbe
 from .visualization import FeatureVisualizer
+from .basin_volume_detector import BasinVolumeDetector

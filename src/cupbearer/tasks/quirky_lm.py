@@ -39,6 +39,12 @@ def quirky_lm(
         base_model_name = 'meta-llama/Meta-Llama-3.1-8B'
     elif base_model == 'Mistral-7B-v0.1':
         base_model_name = 'mistralai/Mistral-7B-v0.1'
+    elif base_model == "Meta-Llama-3.2-3B":
+        base_model_name = "meta-llama/Llama-3.2-3B"
+        model_name = f"EleutherAI/Llama-3.2-3B-{dataset}-random"
+    elif base_model == "Meta-Llama-3.2-1B":
+        base_model_name = "meta-llama/Llama-3.2-1B"
+        model_name = f"EleutherAI/Llama-3.2-1B-{dataset}-random"
     else:
         raise ValueError(f"Invalid base model: {base_model}")
 
@@ -46,15 +52,20 @@ def quirky_lm(
         model_name += "-standardized"
     if random_names:
         model_name += "-many-random-names"
+    if base_model_name == "meta-llama/Llama-3.2-3B":
+        model_name = base_model_name
 
     model = None
     tokenizer = None
     # We might not want to actually load a model if we're getting all activations
     # from a cache anyway.
     if not fake_model:
-        model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype=torch.bfloat16)
-        # model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map=device, torch_dtype=torch.bfloat16)
-        model = model.merge_and_unload()
+        if base_model_name == "meta-llama/Llama-3.2-3B":
+            model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map=device)#, torch_dtype=torch.bfloat16)
+        else:
+            model = AutoPeftModelForCausalLM.from_pretrained(model_name, device_map=device)#, torch_dtype=torch.bfloat16)
+             # model = AutoModelForCausalLM.from_pretrained(base_model_name, device_map=device, torch_dtype=torch.bfloat16)
+            model = model.merge_and_unload()
         tokenizer = AutoTokenizer.from_pretrained(base_model_name)
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "right"

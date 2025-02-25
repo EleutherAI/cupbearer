@@ -1,0 +1,549 @@
+\subsection{Addition Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE             & Activations & \textbf{0.935}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral Activations QUE          & Activations & 0.919  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral GMM & Activations & 0.874  & -      & 1.000  & 19 \\ 
+Mistral Likelihood Ratio         & Activations & 0.879  & -      & 1.000  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{Offline anomaly detection results for the Addition dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Mean AUROC} AUROC of per-layer anomaly scores, averaged, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:offline_anomaly_addition}
+\end{table}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations LOF                 & Activations            & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\
+Meta Activations Mahalanobis         & Activations            & 0.925  & \textbf{1.000}  & \textbf{1.000}  & 10 \\
+Meta Attribution LOF Mean            & Attribution            & 0.953  & 0.982  & 0.990  & 16 \\
+Meta Attribution Mahalanobis Mean    & Attribution            & 0.872  & 0.918  & 0.838  & 31 \\
+Meta Flow Laplace                    & NFlow                  & 0.475  & 0.489  & 0.364  & 23 \\
+Meta Flow Mahalanobis                & NFlow                  & 0.994  & 0.999  & 0.999  & Aggregate \\
+Meta Probe LOF Mean                  & Probe                  & 0.967  & 0.996  & 0.984  & 28 \\
+Meta Probe Mahalanobis Mean          & Probe                  & 0.942  & -      & 0.964  & 22 \\
+Meta SAE Diag Mahalanobis            & SAE                    & 0.999  & 1.000  & 1.000  & 23 \\
+Meta SAE $L_0$                          & SAE                    & 0.998  & 1.000  & 1.000  & 23 \\
+Mistral Activations LOF              & Activations            & 0.855  & 0.999  & 0.999  & Aggregate \\
+Mistral Activations Mahalanobis      & Activations            & 0.891  & -      & 1.000  & 25 \\
+Mistral Attribution LOF Mean         & Attribution            & 0.912  & 0.981  & 0.981  & Aggregate \\
+Mistral Attribution Mahalanobis Mean & Attribution            & 0.856  & 0.993  & 0.993  & Aggregate \\
+Mistral Misconception                & Misconception Contrast & 0.447  & 0.408  & 0.408  & Aggregate \\
+Mistral Probe LOF Mean               & Probe                  & 0.947  & 1.000  & 0.999  & 28 \\
+Mistral Probe Mahalanobis Mean       & Probe                  & 0.940  & 1.000  & \textbf{1.000}  & 28 \\
+Mistral Rephrase                     & Iterative Rephrase     & 0.544  & 0.544  & 0.544  & Aggregate \\
+\bottomrule
+\end{tabular}
+\caption{Online anomaly detection results. \emph{LOF}: local outlier factor, \emph{Maha}: Mahalanobis distance}
+\label{tab:online_anomaly_scores}
+\end{table}
+
+\subsection{Hemisphere Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE             & Activations & 0.592  & 0.622  & 0.622  & Aggregate \\ 
+Mistral Activations QUE          & Activations & \textbf{0.892}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral GMM & Activations & 0.838  & -      & 0.980  & 19 \\ 
+Mistral Likelihood Ratio         & Activations & 0.838  & -      & 0.980  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{Offline anomaly detection results for the Hemisphere dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Mean AUROC}: AUROC of per-layer anomaly scores, averaged, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:offline_anomaly_hemisphere}
+\end{table}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations LOF                 & Activations            & 0.583  & 0.583  & 0.583  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations            & 0.513  & 0.517  & 0.616  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution            & 0.539  & 0.537  & 0.565  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution            & 0.549  & 0.551  & 0.536  & 31 \\ 
+Meta Flow Laplace                    & NFlow                  & 0.495  & 0.497  & 0.470  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow                  & 0.491  & 0.491  & 0.491  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe                  & 0.470  & 0.528  & 0.515  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe                  & 0.524  & -      & 0.552  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE                    & 0.498  & 0.508  & 0.466  & 23 \\ 
+Meta SAE $L_0$                          & SAE                    & 0.498  & 0.501  & 0.480  & 23 \\ 
+Mistral Activations LOF              & Activations            & 0.732  & 0.846  & 0.846  & Aggregate \\ 
+Mistral Activations Mahalanobis      & Activations            & 0.812  & -      & 0.796  & 25 \\ 
+Mistral Attribution LOF Mean         & Attribution            & 0.789  & 0.853  & 0.853  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution            & 0.781  & 0.814  & 0.814  & Aggregate \\ 
+Mistral Misconception                & Misconception Contrast & 0.743  & 0.842  & 0.842  & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe                  & 0.884  & 0.941  & 0.858  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe                  & \textbf{0.907}  & \textbf{0.952}  & \textbf{0.910}  & 28 \\ 
+Mistral Rephrase                     & Iterative Rephrase     & 0.426  & 0.426  & 0.426  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{Online anomaly detection results for the Hemisphere dataset. \emph{LOF}: local outlier factor \emph{Mean AUROC}: AUROC of per-layer anomaly scores, averaged, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:online_anomaly_hemisphere}
+\end{table}
+
+
+
+\subsection{Modular Addition Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE     & Activations & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral Activations QUE  & Activations & 0.915  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral Likelihood Ratio & Activations & 0.887  & -      & 1.000  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{Offline anomaly detection results for the Modular Addition dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:offline_anomaly_modular_addition}
+\end{table}
+
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations LOF                 & Activations            & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations            & 0.867  & 0.964  & \textbf{1.000}  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution            & 0.865  & 0.912  & 0.857  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution            & 0.734  & 0.762  & 0.725  & 31 \\ 
+Meta Flow Laplace                    & NFlow                  & 0.477  & 0.497  & 0.405  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow                  & 0.954  & 0.965  & 0.965  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe                  & 0.919  & 0.942  & 0.919  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe                  & 0.803  & -      & 0.885  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE                    & 0.980  & 0.983  & 0.997  & 23 \\ 
+Meta SAE $L_0$                          & SAE                    & 0.956  & 0.986  & 0.961  & 23 \\ 
+Mistral Activations LOF              & Activations            & 0.864  & 0.999  & 0.999  & Aggregate \\ 
+Mistral Activations Mahalanobis      & Activations            & 0.875  & -      & 0.955  & 25 \\ 
+Mistral Attribution LOF Mean         & Attribution            & 0.791  & 0.885  & 0.885  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution            & 0.677  & 0.815  & 0.815  & Aggregate \\ 
+Mistral Misconception                & Misconception Contrast & 0.499  & -      & -      & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe                  & 0.861  & 0.963  & 0.908  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe                  & 0.878  & 0.960  & 0.946  & 28 \\ 
+Mistral Rephrase                     & Iterative Rephrase     & 0.591  & 0.591  & 0.591  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{ Online anomaly detection results for the Modular Addition dataset. \emph{LOF}: local outlier factor, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:online_anomaly_modular_addition}
+\end{table}
+
+\subsection{Multiplication Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE     & Activations & \textbf{0.939}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral Activations QUE  & Activations & 0.883  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral Likelihood Ratio & Activations & 0.861  & -      & \textbf{1.000}  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{ Offline anomaly detection results for the Multiplication dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:offline_anomaly_multiplication}
+\end{table}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations LOF                 & Activations & 0.919  & 0.919  & 0.919  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations & 0.936  & \textbf{1.000}  & 0.984  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution & 0.850  & 0.896  & 0.866  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution & 0.650  & 0.663  & 0.888  & 31 \\ 
+Meta Flow Laplace                    & NFlow      & 0.872  & 0.882  & 0.955  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow      & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe      & 0.924  & 0.928  & 0.951  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe      & 0.838  & -      & 0.861  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE        & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & 23 \\ 
+Meta SAE $L_0$                          & SAE        & 0.999  & 1.000  & 1.000  & 23 \\ 
+Mistral Activations LOF              & Activations & 0.848  & 0.993  & 0.993  & Aggregate \\ 
+Mistral Activations Mahalanobis      & Activations & 0.857  & -      & \textbf{1.000}  & 25 \\ 
+Mistral Attribution LOF Mean         & Attribution & 0.818  & 0.900  & 0.900  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution & 0.776  & 0.949  & 0.949  & Aggregate \\ 
+Mistral Misconception                & Misconception Contrast & 0.497  & -      & -  & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe      & 0.829  & 0.907  & 0.952  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe      & 0.777  & 0.877  & 0.930  & 28 \\ 
+Mistral Rephrase                     & Iterative Rephrase & 0.576  & 0.576  & 0.576  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{Online anomaly detection results for the Multiplication dataset. \emph{LOF}: quantum entropy, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:online_anomaly_multiplication}
+\end{table}
+
+
+\subsection{NLI Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE             & Activations & 0.550  & 0.571  & 0.571  & Aggregate \\ 
+Mistral Activations QUE          & Activations & \textbf{0.630}  & \textbf{0.814}  & \textbf{0.814}  & Aggregate \\ 
+Mistral GMM & Activations & 0.534  & -      & 0.500  & 19 \\ 
+Mistral Likelihood Ratio         & Activations & 0.534  & -      & 0.501  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{ Offline anomaly detection results for the NLI dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:offline_anomaly_nli}
+\end{table}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Activations PCA Mahalanobis          & Activations & 0.673  & 0.673  & 0.673  & Aggregate \\ 
+Meta Activations LOF                 & Activations & 0.558  & 0.558  & 0.558  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations & 0.525  & 0.532  & 0.531  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution & 0.548  & 0.553  & 0.573  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution & 0.544  & 0.536  & 0.532  & 31 \\ 
+Meta Flow Laplace                    & NFlow      & 0.520  & 0.522  & 0.529  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow      & 0.538  & 0.542  & 0.542  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe      & 0.482  & 0.541  & 0.485  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe      & 0.556  & -      & 0.577  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE        & 0.494  & 0.483  & 0.518  & 23 \\ 
+Meta SAE $L_0$                          & SAE        & 0.499  & 0.496  & 0.508  & 23 \\ 
+Mistral Activations LOF              & Activations & 0.522  & 0.513  & 0.513  & Aggregate \\ 
+Mistral Activations Mahalanobis      & Activations & 0.549  & -      & 0.726  & 25 \\ 
+Mistral Attribution LOF Mean         & Attribution & \textbf{0.825}  & \textbf{0.957}  & \textbf{0.957}  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution & 0.543  & 0.908  & 0.908  & Aggregate \\ 
+Mistral Misconception                & Misconception Contrast & 0.526  & 0.562  & 0.562  & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe      & 0.814  & 0.887  & 0.874  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe      & 0.809  & 0.853  & 0.827  & 28 \\ 
+Mistral Rephrase                     & Iterative Rephrase & 0.532  & 0.532  & 0.532  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{ Online anomaly detection results for the NLI dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:online_anomaly_nli}
+\end{table}
+
+
+
+
+\subsection{Population Results}
+
+
+
+\begin{table}[H]
+\centering
+\scriptsize
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{lp{3cm}lcccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Meta Best AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE             & Activations & 0.566  & 0.538  & 0.581  & 0.538  & Aggregate \\ 
+Mistral Activations QUE          & Activations & \textbf{0.875}  & \textbf{1.000}  & --     & \textbf{1.000}  & Aggregate \\ 
+Mistral GMM & Activations & 0.746  & -      & --     & 0.956  & 19 \\ 
+Mistral Likelihood Ratio         & Activations & 0.746  & -      & --     & 0.955  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{Offline anomaly detection results for the Population dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Mean AUROC}: AUROC of per-layer anomaly scores, averaged, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Meta Best AUROC} and \emph{Best AUROC}: highest AUROC achieved in any layer (or aggregate, if that is the highest).}
+\label{tab:offline_anomaly_population}
+\end{table}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Activations PCA Mahalanobis          & Activations & \textbf{0.978}  & 0.978  & 0.978  & Aggregate \\ 
+Meta Activations LOF                 & Activations & 0.581  & 0.581  & 0.581  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations & 0.504  & 0.491  & 0.621  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution & 0.494  & 0.479  & 0.539  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution & 0.501  & 0.498  & 0.563  & 31 \\ 
+Meta Flow Laplace                    & NFlow      & 0.473  & 0.472  & 0.447  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow      & 0.475  & 0.475  & 0.475  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe      & 0.486  & 0.484  & 0.485  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe      & 0.496  & -      & 0.503  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE        & 0.486  & 0.486  & 0.477  & 23 \\ 
+Meta SAE $L_0$                          & SAE        & 0.482  & 0.481  & 0.474  & 23 \\ 
+Mistral Activations LOF              & Activations & 0.864  & \textbf{0.987}  & \textbf{0.987}  & Aggregate \\ 
+Mistral Activations Mahalanobis      & Activations & 0.867  & -      & 0.947  & 25 \\ 
+Mistral Attribution LOF Mean         & Attribution & 0.776  & 0.909  & 0.909  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution & 0.799  & 0.877  & 0.877  & Aggregate \\ 
+Mistral Misconception                & Misconception Contrast & 0.751  & 0.912  & 0.912  & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe      & 0.936  & 0.978  & 0.928  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe      & 0.932  & 0.948  & 0.942  & 28 \\ 
+Mistral Rephrase                     & Iterative Rephrase & 0.681  & 0.681  & 0.681  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{ Online anomaly detection results for the Population dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:online_anomaly_population}
+\end{table}
+
+\subsection{SciQ Results}
+
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE             & Activations & 0.443  & 0.386  & 0.386  & Aggregate \\ 
+Mistral Activations QUE          & Activations & \textbf{0.481}  & \textbf{0.637}  & \textbf{0.637}  & Aggregate \\ 
+Mistral GMM & Activations & 0.463  & -      & 0.396  & 19 \\ 
+Mistral Likelihood Ratio         & Activations & 0.465  & -      & 0.396  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{ Offline anomaly detection results for the SciQ dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:offline_anomaly_sciq}
+\end{table}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Activations PCA Mahalanobis          & Activations & 0.367  & 0.367  & 0.367  & Aggregate \\ 
+Meta Activations LOF                 & Activations & 0.572  & 0.572  & 0.572  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations & 0.419  & 0.365  & 0.517  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution & 0.434  & 0.410  & 0.519  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution & 0.380  & 0.383  & 0.384  & 31 \\ 
+Meta Flow Laplace                    & NFlow      & 0.462  & 0.457  & 0.474  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow      & 0.344  & 0.340  & 0.340  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe      & 0.403  & 0.362  & 0.427  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe      & 0.367  & -      & 0.359  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE        & 0.388  & 0.393  & 0.393  & 23 \\ 
+Meta SAE $L_0$                          & SAE        & 0.471  & 0.455  & 0.486  & 23 \\ 
+Mistral Activations LOF              & Activations & 0.547  & 0.619  & 0.619  & Aggregate \\ 
+Mistral Activations Mahalanobis      & Activations & 0.464  & -      & 0.384  & 25 \\ 
+Mistral Attribution LOF Mean         & Attribution & \textbf{0.575}  & \textbf{0.642}  & \textbf{0.642}  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution & 0.491  & 0.600  & 0.600  & Aggregate \\ 
+Mistral Misconception                & Misconception Contrast & 0.571  & 0.605  & 0.605  & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe      & 0.460  & 0.457  & 0.579  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe      & 0.494  & 0.494  & 0.548  & 28 \\ 
+Mistral Rephrase                     & Iterative Rephrase & 0.405  & 0.405  & 0.405  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{ Online anomaly detection results for the SciQ dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:online_anomaly_sciq}
+\end{table}
+
+
+\subsection{Sentiment Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE             & Activations & 0.635  & 0.789  & 0.789  & Aggregate \\ 
+Mistral Activations QUE          & Activations & \textbf{0.746}  & \textbf{0.975}  & \textbf{0.975}  & Aggregate \\ 
+Mistral GMM & Activations & 0.636  & -      & 0.790  & 19 \\ 
+Mistral Likelihood Ratio         & Activations & 0.642  & -      & 0.806  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{ Offline anomaly detection results for the Sentiment dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Mean AUROC}: AUROC of per-layer anomaly scores, averaged, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:offline_anomaly_sentiment}
+\end{table}
+
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Activations PCA Mahalanobis          & Activations & \textbf{0.760}  & \textbf{0.760}  & 0.760  & Aggregate \\ 
+Meta Activations LOF                 & Activations & 0.488  & 0.488  & 0.488  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations & 0.532  & 0.541  & 0.503  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution & 0.622  & 0.659  & 0.687  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution & 0.441  & 0.322  & \textbf{0.809}  & 31 \\ 
+Meta Flow Laplace                    & NFlow      & 0.547  & 0.565  & 0.574  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow      & 0.548  & 0.553  & 0.553  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe      & 0.683  & 0.741  & 0.795  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe      & 0.501  & -      & 0.637  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE        & 0.460  & 0.432  & 0.514  & 23 \\ 
+Meta SAE $L_0$                          & SAE        & 0.468  & 0.454  & 0.493  & 23 \\ 
+Mistral Activations LOF              & Activations & 0.619  & 0.658  & 0.658  & Aggregate \\ 
+Mistral Activations Mahalanobis      & Activations & 0.597  & -      & 0.718  & 25 \\ 
+Mistral Attribution LOF Mean         & Attribution & 0.480  & 0.432  & 0.432  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution & 0.424  & 0.404  & 0.404  & Aggregate \\ 
+Mistral Misconception                & Misconception Contrast & 0.526  & 0.523  & 0.523  & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe      & 0.419  & 0.409  & 0.480  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe      & 0.421  & 0.417  & 0.468  & 28 \\ 
+Mistral Rephrase                     & Iterative Rephrase & 0.298  & 0.298  & 0.298  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{ Online anomaly detection results for the Sentiment dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:online_anomaly_sentiment}
+\end{table}
+
+\subsection{Squaring Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE  & Activations & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{ Offline anomaly detection results for the Squaring dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:offline_anomaly_squaring}
+\end{table}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations LOF                 & Activations & 0.915  & 0.915  & 0.915  & Aggregate \\ 
+Meta Activations Mahalanobis         & Activations & 0.930  & \textbf{1.000}  & 0.915  & 10 \\ 
+Meta Attribution LOF Mean            & Attribution & 0.951  & 0.941  & 0.956  & 16 \\ 
+Meta Attribution Mahalanobis Mean    & Attribution & 0.922  & 0.949  & 0.995  & 31 \\ 
+Meta Flow Laplace                    & NFlow      & 0.999  & \textbf{1.000}  & \textbf{1.000}  & 23 \\ 
+Meta Flow Mahalanobis                & NFlow      & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Meta Probe LOF Mean                  & Probe      & 0.925  & 0.930  & 0.936  & 28 \\ 
+Meta Probe Mahalanobis Mean          & Probe      & 0.917  & -      & 0.930  & 22 \\ 
+Meta SAE Diag Mahalanobis            & SAE        & 0.992  & \textbf{1.000}  & 0.977  & 23 \\ 
+Meta SAE $L_0$                          & SAE        & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & 23 \\ 
+Mistral Attribution LOF Mean         & Attribution & 0.931  & 0.966  & 0.966  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution & 0.891  & 0.942  & 0.942  & Aggregate \\ 
+Mistral Probe LOF Mean               & Probe      & 0.953  & 0.976  & 0.996  & 28 \\ 
+Mistral Probe Mahalanobis Mean       & Probe      & 0.905  & 0.965  & 0.994  & 28 \\ 
+\bottomrule
+\end{tabular}
+\caption{ Online anomaly detection results for the Squaring dataset. \emph{QUE}: quantum entropy, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved.}
+\label{tab:online_anomaly_squaring}
+\end{table}
+
+
+\subsection{Subtraction Results}
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Meta Activations QUE             & Activations & \textbf{0.918}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral Activations QUE          & Activations & 0.915  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Mistral GMM & Activations & 0.898  & -  & \textbf{1.000}  & 19 \\ 
+Mistral Likelihood Ratio         & Activations & 0.902  & -  & \textbf{1.000}  & 19 \\ 
+\bottomrule
+\end{tabular}
+\caption{ Offline anomaly detection results for the Subtraction dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Mean AUROC}: AUROC of per-layer anomaly scores, averaged, \emph{Agg. AUROC}: AUROC of anomaly scores aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:offline_anomaly_subtraction}
+\end{table}
+
+
+\begin{table}[H]
+\centering
+\scriptsize  % Maintain appendix formatting
+\renewcommand{\arraystretch}{1.2}  % Reduce row spacing for compactness
+\setlength{\tabcolsep}{2pt}  % Reduce column spacing to fit within margins
+\begin{tabular}{lp{3cm}lccc}
+\toprule
+\textbf{Score} & \textbf{Features} & \textbf{Mean AUROC} & \textbf{Agg. AUROC} & \textbf{Best AUROC} & \textbf{Best Layer} \\
+\midrule
+Activations PCA Mahalanobis       & Activations & 1.000  & 1.000  & 1.000  & Aggregate \\ 
+Meta Activations LOF              & Activations & \textbf{1.000}  & \textbf{1.000}  & \textbf{1.000}  & Aggregate \\ 
+Meta Activations Mahalanobis      & Activations & 0.907  & \textbf{1.000}  & \textbf{1.000}  & 10 \\ 
+Meta Attribution LOF Mean         & Attribution & 0.868  & 0.931  & 0.856  & 16 \\ 
+Meta Attribution Mahalanobis Mean & Attribution & 0.750  & 0.812  & 0.848  & 31 \\ 
+Meta Flow Laplace                 & NFlow       & 0.507  & 0.426  & 0.906  & 23 \\ 
+Meta Flow Mahalanobis             & NFlow       & 0.998  & 1.000  & 1.000  & Aggregate \\ 
+Meta Probe LOF Mean               & Probe       & 0.859  & 0.915  & 0.932  & 28 \\ 
+Meta Probe Mahalanobis Mean       & Probe       & 0.795  & -  & 0.806  & 22 \\ 
+Meta SAE Diag Mahalanobis         & SAE         & 0.997  & 1.000  & \textbf{1.000}  & 23 \\ 
+Meta SAE $L_0$                    & SAE         & 0.993  & 1.000  & 1.000  & 23 \\ 
+Mistral Activations LOF           & Activations & 0.889  & 0.999  & 0.999  & Aggregate \\ 
+Mistral Activations Mahalanobis   & Activations & 0.899  & -  & \textbf{1.000}  & 25 \\ 
+Mistral Attribution LOF Mean      & Attribution & 0.853  & 0.974  & 0.974  & Aggregate \\ 
+Mistral Attribution Mahalanobis Mean & Attribution & 0.951  & 0.970  & 0.970  & Aggregate \\ 
+Mistral Misconception Contrast    & Misconception & 0.411  & -  & -  & Aggregate \\ 
+Mistral Probe LOF Mean            & Probe       & 0.928  & 0.998  & 0.994  & 28 \\ 
+Mistral Probe Mahalanobis Mean    & Probe       & 0.886  & 0.998  & 0.993  & 28 \\ 
+Mistral Rephrase                  & Iterative Rephrase & 0.496  & 0.496  & 0.496  & Aggregate \\ 
+\bottomrule
+\end{tabular}
+\caption{Online anomaly detection results for the Subtraction dataset. \emph{QUE}: quantum entropy, \emph{GMM}: Gaussian Mixture Model, \emph{Agg. AUROC}: AUROC aggregated across layers, \emph{Best AUROC}: highest AUROC achieved in any layer or aggregated across layers.}
+\label{tab:online_anomaly_subtraction}
+\end{table}

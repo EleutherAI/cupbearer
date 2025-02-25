@@ -12,6 +12,8 @@ def safe_logprob_to_logit(logprob: float, name: str) -> float:
     """
     Convert a log-probability to a logit value in a safe manner.
     """
+    if logprob == 0:
+        return 100
     try:
         logit = -logprob - np.log1p(-np.exp(-logprob))
         if np.isinf(logit) or np.isnan(logit):

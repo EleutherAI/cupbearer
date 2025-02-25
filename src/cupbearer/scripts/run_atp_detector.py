@@ -5,10 +5,22 @@ import os
 import torch
 
 from cupbearer import tasks, scripts
-from cupbearer.detectors.statistical import MahalanobisDetector, QuantumEntropyDetector, IsoForestDetector, LOFDetector, UMAPMahalanobisDetector, UMAPLOFDetector, LaplaceDetector, ScaledMeanDifferenceDetector
-from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor, NFlowExtractor, SaeExtractor
+from cupbearer.detectors.statistical import (
+    MahalanobisDetector, 
+    QuantumEntropyDetector, 
+    IsoForestDetector, 
+    LOFDetector, 
+    UMAPMahalanobisDetector, 
+    UMAPLOFDetector,
+    LaplaceDetector, 
+    ScaledMeanDifferenceDetector, 
+    IdentityDetector
+)
+from cupbearer.detectors import BasinVolumeDetector
+from cupbearer.detectors.extractors import AttributionEffectExtractor, ActivationExtractor, ProbeEffectExtractor, MultiExtractor, NFlowExtractor, SaeExtractor, NFlowExtractorLDJ
 from cupbearer.detectors.feature_processing import get_last_token_activation_function_for_task, concat_to_single_layer
 from cupbearer.detectors.extractors.core import FeatureCache
+from cupbearer.detectors.extractors.basin_volume_extractor import BasinVolumeExtractor
 import gc
 
 datasets = [
@@ -43,8 +55,14 @@ def main(
     sae_model='EleutherAI/sae-llama-3.1-8b-64x',
     n_layers=9
 ):
+    
     interval = max(1, (last_layer - first_layer) // (n_layers - 1))
     layers = list(range(first_layer, last_layer + 1, interval))
+
+    if score == 'basin_volume':
+        layers = [1]
+
+    max_split_size = 100 if score == 'basin_volume' else 4000
 
     task = tasks.quirky_lm(
         base_model=base_model,
@@ -53,7 +71,7 @@ def main(
         standardize_template=True,
         dataset=dataset,
         random_names=random_names,
-        max_split_size=4000
+        max_split_size=max_split_size
     )
 
     no_token = task.model.tokenizer.encode(' No', add_special_tokens=False)[-1]
@@ -171,6 +189,15 @@ def main(
                 individual_processing_fn=activation_processing_function,
                 global_processing_fn=global_processing_function
             ))
+        elif feature == 'nflownll':
+            names = [f'hf_model.model.layers.{layer}' for layer in [23, 29]]
+            flow_paths = [f'/mnt/ssd-1/nora/flows/llama-3.1/layers.{layer}' for layer in [23, 29]]
+
+            extractors.append(NFlowExtractorLDJ(
+                names=names,
+                flow_paths=flow_paths,
+                global_processing_fn=global_processing_function
+            ))
 
         elif feature == 'sae':
             score = 'scaled_mean_diff'
@@ -192,12 +219,22 @@ def main(
                 else:
                     feature_groups[key].append(key)
 
-    if concat:
-        for ex in extractors:
-            ex.feature_names = ['all']
-
-
-    feature_extractor = MultiExtractor(extractors, feature_groups = feature_groups) if len(extractors) > 1 else extractors[0]
+    if score != 'basin_volume':
+        if concat:
+            for ex in extractors:
+                ex.feature_names = ['all']
+            feature_extractor = MultiExtractor(extractors, feature_groups=feature_groups) if len(extractors) > 1 else extractors[0]
+        else:
+            feature_extractor = extractors[0]
+    else:
+        # Create a basin volume extractor
+        feature_extractor = BasinVolumeExtractor(
+            n_samples=10,
+            cutoff=1e-2,
+            max_seq_len=1024,
+            cache=cache
+        )
+        feature_extractor.set_model(task.model)
 
     if score == 'mahalanobis':
         if args.umap:
@@ -215,8 +252,15 @@ def main(
             detector = LOFDetector(feature_extractor)
     elif score == 'laplace':
         detector = LaplaceDetector(feature_extractor)
+    elif score == 'identity':
+        detector = IdentityDetector(feature_extractor, reduction="mean" if "basin_volume" in feature_extractor.feature_names else "none")
     elif score == 'scaled_mean_diff':
         detector = ScaledMeanDifferenceDetector(feature_extractor)
+    elif score == 'basin_volume':
+        # Use the BasinVolumeDetector directly
+        detector = BasinVolumeDetector(
+            model=task.model
+        )
     else:
         raise ValueError(f"Unknown score: {score}")
     detector.set_model(task.model)
@@ -229,6 +273,9 @@ def main(
     if 'sae' in features:
         batch_size = 1
         eval_batch_size = 1
+    if score == 'basin_volume':
+        batch_size = 100
+        eval_batch_size = 100
 
     save_path = f"logs/quirky/{dataset}-{score}-{'_'.join(features)}-{base_model}-{model_name}-{first_layer}-{last_layer}-{ablation}"
 
@@ -273,12 +320,12 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='all', help='Dataset to use')
     parser.add_argument('--layerwise', action='store_true', default=False, help='Evaluate layerwise instead of aggregated')
     parser.add_argument('--nonrandom_names', action='store_true', default=False, help='Avoid randomising names')
-    parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe', 'nflow', 'sae'], help='Features to use')
-    parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof', 'laplace', 'scaled_mean_diff'], help='Score to use')
+    parser.add_argument('--features', type=str, nargs='+', default=['activations'], choices=['activations', 'attribution', 'probe', 'nflow', 'nflownll', 'sae'], help='Features to use')
+    parser.add_argument('--score', type=str, default='mahalanobis', choices=['mahalanobis', 'que', 'isoforest', 'lof', 'laplace', 'scaled_mean_diff', 'identity', 'basin_volume'], help='Score to use')
     parser.add_argument('--concat', action='store_true', default=False, help='Concatenate features across layers')
     parser.add_argument('--umap', action='store_true', default=False, help='Use UMAP instead of Mahalanobis')
     parser.add_argument('--mlp_out', action='store_true', default=False, help='Use MLP output instead of input')
-    parser.add_argument('--base_model', type=str, choices=['Mistral-7B-v0.1', 'Meta-Llama-3.1-8B', 'Meta-Llama-3-8B'], help='Base model to use')
+    parser.add_argument('--base_model', type=str, choices=['Mistral-7B-v0.1', 'Meta-Llama-3.1-8B', 'Meta-Llama-3-8B', 'Meta-Llama-3.2-3B', 'Meta-Llama-3.2-1B'], help='Base model to use')
     parser.add_argument('--sae_model', type=str, default='EleutherAI/sae-llama-3.1-8b-64x', help='SAE model to use')
     parser.add_argument('--n_layers', type=int, default=9, help='Number of layers to use')
 

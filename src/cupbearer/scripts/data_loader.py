@@ -80,6 +80,8 @@ def parse_filepath(root: str) -> Dict[str, Any]:
         score = "expectation-maximization"
     if "likelihood" in root:
         score = "likelihood-ratio"
+    if "basin_volume" in root:
+        score = "basin-volume"
     base_model = "mistral" if "Meta" not in root else "meta"
     score = f"{base_model}-{score}"
     return {
@@ -125,7 +127,7 @@ def get_data(filter_fn: FilterFunc, train_from_test: bool = False, log_dir: str 
             base_model = file_info["base_model"]
 
             if (features == 'activations') and ('mahalanobis' in score) and (base_model == "mistral"):
-                if ('--' not in root) and ('rc3' not in root):
+                if ('--' not in root) and ('rc3' not in root) and ('nrand' not in root):
                     continue
 
             for key, value in main_eval.items():
